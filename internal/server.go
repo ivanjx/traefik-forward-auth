@@ -111,6 +111,12 @@ func (s *Server) AuthHandler(providerName, rule string) http.HandlerFunc {
 			return
 		}
 
+		// Get role if any
+		role, hasRole := GetRole(email, rule)
+		if hasRole {
+			w.Header().Set("X-Forwarded-Role", role)
+		}
+
 		// Valid request
 		logger.Debug("Allowing valid request")
 		w.Header().Set("X-Forwarded-User", email)

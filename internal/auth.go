@@ -97,6 +97,33 @@ func ValidateEmail(email, ruleName string) bool {
 	return false
 }
 
+func GetRole(email, ruleName string) (string, bool) {
+    // Use global config by default
+    whitelist := config.Whitelist
+    roles := config.Roles
+
+    if rule, ok := config.Rules[ruleName]; ok {
+        // Override with rule config if found
+        if len(rule.Whitelist) > 0 || len(rule.Roles) > 0 {
+            whitelist = rule.Whitelist
+            roles = rule.Roles
+        }
+    }
+
+    // Ensure safe iteration
+    n := len(whitelist)
+    if len(roles) < n {
+        n = len(roles)
+    }
+
+    for i := 0; i < n; i++ {
+        if whitelist[i] == email {
+            return roles[i], true
+        }
+    }
+    return "", false
+}
+
 // ValidateWhitelist checks if the email is in whitelist
 func ValidateWhitelist(email string, whitelist CommaSeparatedList) bool {
 	for _, whitelist := range whitelist {

@@ -28,7 +28,12 @@ func (s *Server) buildRoutes() {
 		log.Fatal(err)
 	}
 
-	// Let's build a muxer
+	// Reserve the auth callback and logout routes with a higher priority.
+	// This ensures that requests to config.Path (e.g. "/_oauth") always hit the AuthCallbackHandler.
+	_ = s.muxer.AddRoute("Path(`"+config.Path+"`)", 2, s.AuthCallbackHandler())
+	_ = s.muxer.AddRoute("Path(`"+config.Path+"/logout`)", 2, s.LogoutHandler())
+
+	// Now add the custom rules.
 	for name, rule := range config.Rules {
 		matchRule := rule.formattedRule()
 		if rule.Action == "allow" {
@@ -38,13 +43,7 @@ func (s *Server) buildRoutes() {
 		}
 	}
 
-	// Add callback handler
-	s.muxer.Handle(config.Path, s.AuthCallbackHandler())
-
-	// Add logout handler
-	s.muxer.Handle(config.Path+"/logout", s.LogoutHandler())
-
-	// Add a default handler
+	// Add a default handler.
 	if config.DefaultAction == "allow" {
 		s.muxer.NewRoute().Handler(s.AllowHandler("default"))
 	} else {

@@ -96,7 +96,10 @@
                         <option value="query" selected="@(Model.Provider.TokenStyle == "query")">Query parameter</option>
                     </select>
                 </div>
+            }
 
+            @if (Model.Provider.Name is ProviderDefinition.GenericOAuth or ProviderDefinition.Oidc)
+            {
                 <div class="field">
                     <label for="resource">Resource</label>
                     <input id="resource" type="text" name="resource" value="@Model.Provider.Resource">

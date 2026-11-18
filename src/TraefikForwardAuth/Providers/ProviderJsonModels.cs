@@ -103,12 +103,15 @@ internal sealed class IdTokenPayload
     public string[]? Audience { get; init; }
 
     [JsonPropertyName("exp")]
+    [JsonConverter(typeof(NumericDateConverter))]
     public long? Expires { get; init; }
 
     [JsonPropertyName("nbf")]
+    [JsonConverter(typeof(NumericDateConverter))]
     public long? NotBefore { get; init; }
 
     [JsonPropertyName("iat")]
+    [JsonConverter(typeof(NumericDateConverter))]
     public long? IssuedAt { get; init; }
 
     [JsonPropertyName("email")]
@@ -197,4 +200,47 @@ internal sealed class BoolOrStringConverter : JsonConverter<bool?>
         "false" => false,
         _ => throw new JsonException("Expected the string \"true\" or \"false\".")
     };
+}
+
+/// <summary>Reads a NumericDate claim ("exp", "nbf", "iat") that may be an integer or a fractional number of seconds.</summary>
+internal sealed class NumericDateConverter : JsonConverter<long?>
+{
+    public override long? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType == JsonTokenType.Null)
+        {
+            return null;
+        }
+
+        if (reader.TokenType != JsonTokenType.Number)
+        {
+            throw new JsonException("Expected a numeric date.");
+        }
+
+        if (reader.TryGetInt64(out var seconds))
+        {
+            return seconds;
+        }
+
+        var fractional = reader.GetDouble();
+
+        if (!double.IsFinite(fractional) || fractional < long.MinValue || fractional >= long.MaxValue)
+        {
+            throw new JsonException("Numeric date is out of range.");
+        }
+
+        return (long)fractional;
+    }
+
+    public override void Write(Utf8JsonWriter writer, long? value, JsonSerializerOptions options)
+    {
+        if (value is { } seconds)
+        {
+            writer.WriteNumberValue(seconds);
+        }
+        else
+        {
+            writer.WriteNullValue();
+        }
+    }
 }

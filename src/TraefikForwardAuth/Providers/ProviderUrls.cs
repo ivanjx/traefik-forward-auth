@@ -4,11 +4,16 @@ namespace TraefikForwardAuth.Providers;
 
 internal static class ProviderUrls
 {
-    /// <summary>Builds an absolute URL by appending percent-encoded query parameters to the endpoint.</summary>
+    /// <summary>
+    /// Builds an absolute URL by appending percent-encoded query parameters to the endpoint,
+    /// keeping any query already on the endpoint and dropping its fragment.
+    /// </summary>
     public static string WithQuery(Uri endpoint, params (string Key, string? Value)[] parameters)
     {
-        var builder = new StringBuilder(endpoint.GetLeftPart(UriPartial.Path));
-        var separator = '?';
+        var baseUrl = endpoint.GetLeftPart(UriPartial.Query);
+        var builder = new StringBuilder(baseUrl);
+
+        var separator = baseUrl.EndsWith('?') ? "" : baseUrl.Contains('?') ? "&" : "?";
 
         foreach (var (key, value) in parameters)
         {
@@ -22,7 +27,7 @@ internal static class ProviderUrls
                 .Append('=')
                 .Append(Uri.EscapeDataString(value));
 
-            separator = '&';
+            separator = "&";
         }
 
         return builder.ToString();

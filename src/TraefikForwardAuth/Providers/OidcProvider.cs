@@ -10,6 +10,7 @@ public sealed class OidcProvider : IProvider
     private static readonly string[] Scopes = ["openid", "profile", "email"];
 
     private readonly string _clientId;
+    private readonly string? _resource;
     private readonly OidcProviderMetadata _metadata;
     private readonly OAuth2Client _client;
     private readonly JwtValidator _validator;
@@ -18,6 +19,7 @@ public sealed class OidcProvider : IProvider
 
     private OidcProvider(
         string clientId,
+        string? resource,
         OidcProviderMetadata metadata,
         OAuth2Client client,
         JwtValidator validator,
@@ -25,6 +27,7 @@ public sealed class OidcProvider : IProvider
         TfaLogger logger)
     {
         _clientId = clientId;
+        _resource = string.IsNullOrEmpty(resource) ? null : resource;
         _metadata = metadata;
         _client = client;
         _validator = validator;
@@ -51,6 +54,7 @@ public sealed class OidcProvider : IProvider
 
         return new OidcProvider(
             definition.ClientId,
+            definition.Resource,
             metadata,
             client,
             new JwtValidator(metadata, definition.ClientId, keys),
@@ -64,7 +68,8 @@ public sealed class OidcProvider : IProvider
         ("response_type", "code"),
         ("scope", string.Join(' ', Scopes)),
         ("redirect_uri", redirectUri),
-        ("state", state));
+        ("state", state),
+        ("resource", _resource));
 
     public async Task<ProviderToken> ExchangeCodeAsync(string redirectUri, string code, CancellationToken cancellationToken)
     {

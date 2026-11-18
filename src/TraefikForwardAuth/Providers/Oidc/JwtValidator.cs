@@ -11,6 +11,8 @@ namespace TraefikForwardAuth.Providers.Oidc;
 internal sealed class JwtValidator
 {
     private const long ClockSkewSeconds = 60;
+    private const string GoogleIssuerUrl = "https://accounts.google.com";
+    private const string GoogleIssuerHost = "accounts.google.com";
 
     private readonly string _issuer;
     private readonly string _clientId;
@@ -21,8 +23,16 @@ internal sealed class JwtValidator
     {
         _issuer = OidcDiscovery.NormalizeIssuer(metadata.Issuer);
         _clientId = clientId;
-        _algorithms = metadata.AllowedAlgorithms.Count > 0 ? metadata.AllowedAlgorithms : ["RS256"];
+        _algorithms = SupportedAlgorithms(metadata.AllowedAlgorithms);
         _keys = keys;
+    }
+
+    /// <summary>Keeps only the discovered algorithms this validator implements, falling back to RS256 like go-oidc.</summary>
+    private static IReadOnlyList<string> SupportedAlgorithms(IReadOnlyList<string> discovered)
+    {
+        var supported = discovered.Where(algorithm => GetSignatureKind(algorithm) is not null).ToArray();
+
+        return supported.Length > 0 ? supported : ["RS256"];
     }
 
     public async Task<ProviderUser> ValidateAsync(string token, CancellationToken cancellationToken)
@@ -59,21 +69,20 @@ internal sealed class JwtValidator
         var payload = ParsePart(parts[1], AppJsonContext.Default.IdTokenPayload, "payload");
         var signingInput = Encoding.ASCII.GetBytes(parts[0] + "." + parts[1]);
         var signature = Decode(parts[2], "signature");
-        var candidates = await GetCandidateKeysAsync(header.KeyId, algorithm, signatureKind, cancellationToken);
-        var verified = false;
+        var keyId = string.IsNullOrEmpty(header.KeyId) ? null : header.KeyId;
+        var keys = await _keys.GetKeysAsync(cancellationToken);
 
-        foreach (var candidate in candidates)
+        if (!TryVerify(keys, keyId, algorithm, signatureKind, signingInput, signature, out _))
         {
-            if (Verify(candidate, signatureKind, signingInput, signature))
+            // The cached keys may predate a rotation (with or without a kid), so refetch once and retry.
+            keys = await _keys.RefetchAsync(keys, cancellationToken);
+
+            if (!TryVerify(keys, keyId, algorithm, signatureKind, signingInput, signature, out var hadCandidates))
             {
-                verified = true;
-                break;
+                throw new InvalidOperationException(hadCandidates
+                    ? "ID token signature verification failed."
+                    : $"No JWKS signing key matches the ID token (kid '{keyId ?? "<none>"}', alg '{algorithm}').");
             }
-        }
-
-        if (!verified)
-        {
-            throw new InvalidOperationException("ID token signature verification failed.");
         }
 
         ValidateClaims(payload);
@@ -86,28 +95,27 @@ internal sealed class JwtValidator
         return new ProviderUser(payload.Email, payload.EmailVerified ?? false);
     }
 
-    private async Task<IReadOnlyList<JwkKey>> GetCandidateKeysAsync(
+    private static bool TryVerify(
+        IReadOnlyList<JwkKey> keys,
         string? keyId,
         string algorithm,
         SignatureKind signatureKind,
-        CancellationToken cancellationToken)
+        byte[] signingInput,
+        byte[] signature,
+        out bool hadCandidates)
     {
-        var keys = await _keys.GetKeysAsync(cancellationToken);
         var candidates = Filter(keys, keyId, algorithm, signatureKind);
+        hadCandidates = candidates.Count > 0;
 
-        if (candidates.Count == 0 && !string.IsNullOrEmpty(keyId))
+        foreach (var candidate in candidates)
         {
-            keys = await _keys.RefetchAsync(cancellationToken);
-            candidates = Filter(keys, keyId, algorithm, signatureKind);
+            if (Verify(candidate, signatureKind, signingInput, signature))
+            {
+                return true;
+            }
         }
 
-        if (candidates.Count == 0)
-        {
-            throw new InvalidOperationException(
-                $"No JWKS signing key matches the ID token (kid '{keyId ?? "<none>"}', alg '{algorithm}').");
-        }
-
-        return candidates;
+        return false;
     }
 
     private static List<JwkKey> Filter(
@@ -183,7 +191,7 @@ internal sealed class JwtValidator
 
     private void ValidateClaims(IdTokenPayload payload)
     {
-        if (!string.Equals(OidcDiscovery.NormalizeIssuer(payload.Issuer ?? ""), _issuer, StringComparison.Ordinal))
+        if (!IsExpectedIssuer(payload.Issuer))
         {
             throw new InvalidOperationException(
                 $"ID token issuer '{payload.Issuer}' does not match the expected issuer '{_issuer}'.");
@@ -211,6 +219,17 @@ internal sealed class JwtValidator
         {
             throw new InvalidOperationException("ID token is not valid yet.");
         }
+    }
+
+    private bool IsExpectedIssuer(string? issuer)
+    {
+        if (OidcDiscovery.NormalizeIssuer(issuer ?? "") == _issuer)
+        {
+            return true;
+        }
+
+        // Google issues ID tokens with either form of its issuer (same exception as go-oidc).
+        return _issuer == GoogleIssuerUrl && issuer == GoogleIssuerHost;
     }
 
     private static T ParsePart<T>(string part, JsonTypeInfo<T> typeInfo, string name)

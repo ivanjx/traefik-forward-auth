@@ -8,10 +8,14 @@ namespace TraefikForwardAuth.Providers.Oidc;
 
 internal sealed record JwkKey(string? KeyId, string? Algorithm, RSAParameters? Rsa, ECParameters? Ec, string? Curve);
 
-/// <summary>Caches the OIDC JWKS key set, refetching on demand and when the cache expires.</summary>
+/// <summary>
+/// Caches the OIDC JWKS key set, refetching on demand and when the cache expires.
+/// When a refresh of an expired cache fails, the previously fetched keys keep being served.
+/// </summary>
 internal sealed class JwksCache
 {
     private static readonly TimeSpan CacheLifetime = TimeSpan.FromMinutes(10);
+    private static readonly TimeSpan FailedRefreshRetryDelay = TimeSpan.FromMinutes(1);
 
     private readonly Uri _jwksUri;
     private readonly IHttpClientFactory _httpClients;
@@ -26,22 +30,30 @@ internal sealed class JwksCache
         _logger = logger;
     }
 
+    /// <summary>Returns the cached keys, refreshing them when expired; falls back to stale keys if the refresh fails.</summary>
     public async Task<IReadOnlyList<JwkKey>> GetKeysAsync(CancellationToken cancellationToken)
     {
         var cache = Volatile.Read(ref _cache);
 
-        if (cache is not null && DateTimeOffset.UtcNow - cache.FetchedAt < CacheLifetime)
+        if (cache is not null && DateTimeOffset.UtcNow < cache.ExpiresAt)
         {
             return cache.Keys;
         }
 
-        return await FetchAsync(force: false, cancellationToken);
+        return await FetchAsync(cache?.Keys, force: false, cancellationToken);
     }
 
-    public Task<IReadOnlyList<JwkKey>> RefetchAsync(CancellationToken cancellationToken) =>
-        FetchAsync(force: true, cancellationToken);
+    /// <summary>
+    /// Downloads the key set again, unless another caller already replaced <paramref name="current"/>
+    /// (the keys the caller failed to verify with) while this one waited.
+    /// </summary>
+    public Task<IReadOnlyList<JwkKey>> RefetchAsync(IReadOnlyList<JwkKey> current, CancellationToken cancellationToken) =>
+        FetchAsync(current, force: true, cancellationToken);
 
-    private async Task<IReadOnlyList<JwkKey>> FetchAsync(bool force, CancellationToken cancellationToken)
+    private async Task<IReadOnlyList<JwkKey>> FetchAsync(
+        IReadOnlyList<JwkKey>? seen,
+        bool force,
+        CancellationToken cancellationToken)
     {
         await _gate.WaitAsync(cancellationToken);
 
@@ -49,13 +61,36 @@ internal sealed class JwksCache
         {
             var cache = Volatile.Read(ref _cache);
 
-            if (!force && cache is not null && DateTimeOffset.UtcNow - cache.FetchedAt < CacheLifetime)
+            if (cache is not null)
             {
+                var replaced = !ReferenceEquals(cache.Keys, seen);
+                var fresh = DateTimeOffset.UtcNow < cache.ExpiresAt;
+
+                if (replaced || (!force && fresh))
+                {
+                    return cache.Keys;
+                }
+            }
+
+            IReadOnlyList<JwkKey> keys;
+
+            try
+            {
+                keys = await DownloadAsync(cancellationToken);
+            }
+            catch (InvalidOperationException exception) when (!force && cache is not null)
+            {
+                _logger.Warn(
+                    "Failed to refresh OIDC JWKS keys; using the previously fetched keys",
+                    ("jwks_uri", _jwksUri.ToString()),
+                    ("error", exception.Message));
+
+                Volatile.Write(ref _cache, cache with { ExpiresAt = DateTimeOffset.UtcNow + FailedRefreshRetryDelay });
+
                 return cache.Keys;
             }
 
-            var keys = await DownloadAsync(cancellationToken);
-            Volatile.Write(ref _cache, new KeySet(keys, DateTimeOffset.UtcNow));
+            Volatile.Write(ref _cache, new KeySet(keys, DateTimeOffset.UtcNow + CacheLifetime));
             _logger.Debug("Fetched OIDC JWKS keys", ("jwks_uri", _jwksUri.ToString()), ("keys", keys.Count));
 
             return keys;
@@ -200,5 +235,5 @@ internal sealed class JwksCache
         return false;
     }
 
-    private sealed record KeySet(IReadOnlyList<JwkKey> Keys, DateTimeOffset FetchedAt);
+    private sealed record KeySet(IReadOnlyList<JwkKey> Keys, DateTimeOffset ExpiresAt);
 }

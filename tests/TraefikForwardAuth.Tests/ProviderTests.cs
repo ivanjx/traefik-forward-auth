@@ -207,6 +207,52 @@ public sealed class ProviderTests
     }
 
     [Fact]
+    public async Task GenericGetUserQueryTokenKeepsExistingUserUrlQuery()
+    {
+        string? fields = null;
+        string? accessToken = null;
+
+        await using var server = await FakeServer.StartAsync(app =>
+            app.MapGet("/userinfo", async (HttpContext context) =>
+            {
+                fields = context.Request.Query["fields"];
+                accessToken = context.Request.Query["access_token"];
+                await WriteJsonAsync(context, """{"email":"query@example.com"}""");
+            }));
+
+        var definition = GenericDefinition(server, "query");
+        definition = definition with { UserUrl = definition.UserUrl + "?fields=email" };
+
+        _ = await CreateGenericProvider(definition).GetUserAsync(new ProviderToken("token-3", null), CancellationToken.None);
+
+        Assert.Equal("email", fields);
+        Assert.Equal("token-3", accessToken);
+    }
+
+    [Fact]
+    public void GenericLoginUrlKeepsExistingAuthUrlQuery()
+    {
+        var provider = CreateGenericProvider(new ProviderDefinition
+        {
+            Name = ProviderDefinition.GenericOAuth,
+            ClientId = "generic-id",
+            ClientSecret = "generic-secret",
+            AuthUrl = "https://idp.example/authorize?p=B2C_1_signin#fragment",
+            TokenUrl = "https://idp.example/token",
+            UserUrl = "https://idp.example/user"
+        });
+
+        var url = provider.GetLoginUrl("https://auth.example/_oauth", "state-3");
+        var query = ParseQuery(url);
+
+        Assert.StartsWith("https://idp.example/authorize?p=B2C_1_signin&", url, StringComparison.Ordinal);
+        Assert.DoesNotContain("#", url, StringComparison.Ordinal);
+        Assert.Equal("B2C_1_signin", query["p"]);
+        Assert.Equal("generic-id", query["client_id"]);
+        Assert.Equal("state-3", query["state"]);
+    }
+
+    [Fact]
     public async Task GenericExchangeFallsBackToFormCredentials()
     {
         var requests = 0;
@@ -377,6 +423,47 @@ public sealed class ProviderTests
         Assert.Equal("https://auth.example/_oauth", query["redirect_uri"]);
         Assert.Equal("state-3", query["state"]);
         Assert.StartsWith($"{server.BaseUrl}/authorize?", provider.GetLoginUrl("https://auth.example/_oauth", "state-3"), StringComparison.Ordinal);
+        Assert.False(query.ContainsKey("resource"));
+
+        var withResource = await OidcProvider.CreateAsync(
+            server.Definition with { Resource = "urn:api" },
+            HttpClients,
+            Logger,
+            CancellationToken.None);
+
+        Assert.Equal("urn:api", ParseQuery(withResource.GetLoginUrl("https://auth.example/_oauth", "state-4"))["resource"]);
+    }
+
+    [Fact]
+    public async Task OidcAcceptsFractionalNumericDates()
+    {
+        await using var server = await OidcServer.StartAsync();
+        server.ServeKeys(OidcServer.RsaKey1Id);
+
+        var provider = await OidcProvider.CreateAsync(server.Definition, HttpClients, Logger, CancellationToken.None);
+
+        var payload = JwtSigner.Payload(server.Issuer, server.ClientId, emailVerified: true);
+        payload["exp"] = DateTimeOffset.UtcNow.AddMinutes(5).ToUnixTimeSeconds() + 0.5;
+        payload["iat"] = DateTimeOffset.UtcNow.ToUnixTimeSeconds() + 0.25;
+
+        var user = await provider.GetUserAsync(new ProviderToken("access", server.SignRsa(payload)), CancellationToken.None);
+
+        Assert.Equal("user@example.com", user.Email);
+    }
+
+    [Fact]
+    public async Task OidcFallsBackToRs256WhenNoDiscoveredAlgorithmIsSupported()
+    {
+        await using var server = await OidcServer.StartAsync();
+        server.Algorithms = ["EdDSA"];
+        server.ServeKeys(OidcServer.RsaKey1Id);
+
+        var provider = await OidcProvider.CreateAsync(server.Definition, HttpClients, Logger, CancellationToken.None);
+
+        var token = server.SignRsa(JwtSigner.Payload(server.Issuer, server.ClientId, emailVerified: true));
+        var user = await provider.GetUserAsync(new ProviderToken("access", token), CancellationToken.None);
+
+        Assert.Equal("user@example.com", user.Email);
     }
 
     [Fact]
@@ -518,6 +605,36 @@ public sealed class ProviderTests
         var secondToken = JwtSigner.Create(
             "RS256",
             OidcServer.RsaKey2Id,
+            JwtSigner.Payload(server.Issuer, server.ClientId, emailVerified: true),
+            server.RotatedRsaKey);
+
+        var user = await provider.GetUserAsync(new ProviderToken("access", secondToken), CancellationToken.None);
+
+        Assert.Equal("user@example.com", user.Email);
+        Assert.Equal(2, server.JwksFetches);
+    }
+
+    [Fact]
+    public async Task OidcRefetchesJwksOnRotationWithoutKeyId()
+    {
+        await using var server = await OidcServer.StartAsync();
+        server.ServeKeys(OidcServer.RsaKey1Id);
+
+        var provider = await OidcProvider.CreateAsync(server.Definition, HttpClients, Logger, CancellationToken.None);
+
+        var firstToken = JwtSigner.Create(
+            "RS256",
+            null,
+            JwtSigner.Payload(server.Issuer, server.ClientId, emailVerified: true),
+            server.RsaKey);
+        _ = await provider.GetUserAsync(new ProviderToken("access", firstToken), CancellationToken.None);
+
+        Assert.Equal(1, server.JwksFetches);
+
+        server.ServeKeys(OidcServer.RsaKey2Id);
+        var secondToken = JwtSigner.Create(
+            "RS256",
+            "",
             JwtSigner.Payload(server.Issuer, server.ClientId, emailVerified: true),
             server.RotatedRsaKey);
 

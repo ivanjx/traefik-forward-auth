@@ -463,7 +463,9 @@ public sealed class AuthTests
         await using var manager = new SessionManager(repository, QuietLogger(time), time);
         var session = await CreateForwardAuthAsync(manager);
 
-        time.Advance(TimeSpan.FromMinutes(1));
+        // Stay inside the 15 s flush interval: past it, the loop flushes the first touch on its own
+        // before the second is queued, giving two batches.
+        time.Advance(TimeSpan.FromSeconds(5));
         manager.Touch(session.Id);
         manager.Touch(session.Id);
         await manager.FlushPendingUpdatesAsync(TestContext.Current.CancellationToken);

@@ -146,6 +146,7 @@ public sealed class ProviderTests
         Assert.Equal("code", query["response_type"]);
         Assert.Equal("profile email", query["scope"]);
         Assert.Equal("https://api.example", query["resource"]);
+        Assert.False(query.ContainsKey("prompt"));
 
         var custom = CreateGenericProvider(new ProviderDefinition
         {
@@ -155,11 +156,15 @@ public sealed class ProviderTests
             AuthUrl = "https://idp.example/auth",
             TokenUrl = "https://idp.example/token",
             UserUrl = "https://idp.example/user",
-            Scopes = ["openid", "custom"]
+            Scopes = ["openid", "custom"],
+            Prompt = "consent"
         });
 
-        Assert.Equal("openid custom", ParseQuery(custom.GetLoginUrl("https://auth.example/_oauth", "state"))["scope"]);
-        Assert.False(ParseQuery(custom.GetLoginUrl("https://auth.example/_oauth", "state")).ContainsKey("resource"));
+        var customQuery = ParseQuery(custom.GetLoginUrl("https://auth.example/_oauth", "state"));
+
+        Assert.Equal("openid custom", customQuery["scope"]);
+        Assert.Equal("consent", customQuery["prompt"]);
+        Assert.False(customQuery.ContainsKey("resource"));
     }
 
     [Fact]
@@ -424,6 +429,7 @@ public sealed class ProviderTests
         Assert.Equal("state-3", query["state"]);
         Assert.StartsWith($"{server.BaseUrl}/authorize?", provider.GetLoginUrl("https://auth.example/_oauth", "state-3"), StringComparison.Ordinal);
         Assert.False(query.ContainsKey("resource"));
+        Assert.False(query.ContainsKey("prompt"));
 
         var withResource = await OidcProvider.CreateAsync(
             server.Definition with { Resource = "urn:api" },
@@ -432,6 +438,16 @@ public sealed class ProviderTests
             CancellationToken.None);
 
         Assert.Equal("urn:api", ParseQuery(withResource.GetLoginUrl("https://auth.example/_oauth", "state-4"))["resource"]);
+
+        var custom = await OidcProvider.CreateAsync(
+            server.Definition with { Scopes = ["email", "groups"], Prompt = "login" },
+            HttpClients,
+            Logger,
+            CancellationToken.None);
+        var customQuery = ParseQuery(custom.GetLoginUrl("https://auth.example/_oauth", "state-5"));
+
+        Assert.Equal("openid email groups", customQuery["scope"]);
+        Assert.Equal("login", customQuery["prompt"]);
     }
 
     [Fact]

@@ -7,9 +7,11 @@ namespace TraefikForwardAuth.Providers;
 
 public sealed class OidcProvider : IProvider
 {
-    private static readonly string[] Scopes = ["openid", "profile", "email"];
+    private static readonly string[] DefaultScopes = ["openid", "profile", "email"];
 
     private readonly string _clientId;
+    private readonly IReadOnlyList<string> _scopes;
+    private readonly string? _prompt;
     private readonly string? _resource;
     private readonly OidcProviderMetadata _metadata;
     private readonly OAuth2Client _client;
@@ -18,16 +20,17 @@ public sealed class OidcProvider : IProvider
     private readonly TfaLogger _logger;
 
     private OidcProvider(
-        string clientId,
-        string? resource,
+        ProviderDefinition definition,
         OidcProviderMetadata metadata,
         OAuth2Client client,
         JwtValidator validator,
         IHttpClientFactory httpClients,
         TfaLogger logger)
     {
-        _clientId = clientId;
-        _resource = string.IsNullOrEmpty(resource) ? null : resource;
+        _clientId = definition.ClientId;
+        _scopes = Scopes(definition.Scopes);
+        _prompt = string.IsNullOrEmpty(definition.Prompt) ? null : definition.Prompt;
+        _resource = string.IsNullOrEmpty(definition.Resource) ? null : definition.Resource;
         _metadata = metadata;
         _client = client;
         _validator = validator;
@@ -53,8 +56,7 @@ public sealed class OidcProvider : IProvider
         var keys = new JwksCache(metadata.JwksUri, httpClients, logger);
 
         return new OidcProvider(
-            definition.ClientId,
-            definition.Resource,
+            definition,
             metadata,
             client,
             new JwtValidator(metadata, definition.ClientId, keys),
@@ -66,7 +68,8 @@ public sealed class OidcProvider : IProvider
         _metadata.AuthorizationEndpoint,
         ("client_id", _clientId),
         ("response_type", "code"),
-        ("scope", string.Join(' ', Scopes)),
+        ("scope", string.Join(' ', _scopes)),
+        ("prompt", _prompt),
         ("redirect_uri", redirectUri),
         ("state", state),
         ("resource", _resource));
@@ -108,5 +111,16 @@ public sealed class OidcProvider : IProvider
         {
             return ProviderTestResult.Fail($"OIDC discovery failed: {exception.Message}");
         }
+    }
+
+    /// <summary>Configured scopes, or the defaults when empty; <c>openid</c> is always sent so an ID token comes back.</summary>
+    private static IReadOnlyList<string> Scopes(IReadOnlyList<string> configured)
+    {
+        if (configured.Count == 0)
+        {
+            return DefaultScopes;
+        }
+
+        return configured.Contains("openid", StringComparer.Ordinal) ? configured : ["openid", .. configured];
     }
 }

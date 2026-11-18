@@ -147,6 +147,36 @@ public sealed class ForwardAuthTests
     }
 
     [Fact]
+    public async Task ExpiredCookie_RedirectsToLoginWithCsrfCookie()
+    {
+        var provider = new FakeProvider();
+        var settings = Settings();
+        var snapshot = Snapshot(
+            settings,
+            [Rule("auth", RuleAction.Auth, true, provider: ProviderName)],
+            Providers(provider));
+        var time = new FakeTimeProvider();
+
+        await RunAsync(snapshot, time, async (client, sessions) =>
+        {
+            var session = await CreateSessionAsync(sessions);
+            // The session is still active, so the cookie's own expiry is what rejects it.
+            var cookie = AuthCookie(settings, Host, Email, session.Id, time.GetUtcNow().AddMinutes(-1));
+
+            var response = await client.SendAsync(Request("/private", cookies: [("_forward_auth", cookie)]));
+
+            Assert.Equal(HttpStatusCode.TemporaryRedirect, response.StatusCode);
+            Assert.StartsWith("https://provider.example/login?", response.Headers.Location!.ToString());
+            Assert.False(response.Headers.Contains("X-Forwarded-User"));
+
+            var state = provider.LastState!;
+            var csrfHeader = FindCookieHeader(response, "_forward_auth_csrf_" + state[..6]);
+            Assert.NotNull(csrfHeader);
+            Assert.Equal(state[..32], CookieValue(csrfHeader!));
+        });
+    }
+
+    [Fact]
     public async Task TamperedCookie_Returns401()
     {
         var provider = new FakeProvider();
@@ -487,6 +517,176 @@ public sealed class ForwardAuthTests
     }
 
     [Fact]
+    public async Task Callback_CsrfCookieDoesNotMatchState_Returns401()
+    {
+        var provider = new FakeProvider();
+        var snapshot = Snapshot(
+            Settings(),
+            [Rule("auth", RuleAction.Auth, true, provider: ProviderName)],
+            Providers(provider));
+
+        var nonce = new string('a', 32);
+        var state = nonce + ":" + ProviderName + ":https://app.example.com/private";
+
+        await RunAsync(snapshot, new FakeTimeProvider(), async (client, sessions) =>
+        {
+            // Same cookie name (first 6 characters), different nonce.
+            var response = await client.SendAsync(Request(
+                "/_oauth?state=" + Uri.EscapeDataString(state) + "&code=code123",
+                cookies: [("_forward_auth_csrf_" + nonce[..6], "aaaaaa" + new string('b', 26))]));
+
+            Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+            Assert.Equal("Not authorized\n", await response.Content.ReadAsStringAsync());
+            Assert.Null(provider.LastCode);
+            Assert.Empty(sessions.List(SessionKind.ForwardAuth));
+        });
+    }
+
+    [Fact]
+    public async Task Callback_UnknownProviderInState_Returns401()
+    {
+        var provider = new FakeProvider();
+        var snapshot = Snapshot(
+            Settings(),
+            [Rule("auth", RuleAction.Auth, true, provider: ProviderName)],
+            Providers(provider));
+
+        var nonce = new string('a', 32);
+        var state = nonce + ":unknown:https://app.example.com/private";
+
+        await RunAsync(snapshot, new FakeTimeProvider(), async (client, sessions) =>
+        {
+            var response = await client.SendAsync(Request(
+                "/_oauth?state=" + Uri.EscapeDataString(state) + "&code=code123",
+                cookies: [("_forward_auth_csrf_" + nonce[..6], nonce)]));
+
+            Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+            Assert.Equal("Not authorized\n", await response.Content.ReadAsStringAsync());
+            Assert.Null(provider.LastCode);
+            Assert.Empty(sessions.List(SessionKind.ForwardAuth));
+        });
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Callback_ProviderFailure_Returns503WithoutAuthCookie(bool failExchange)
+    {
+        var error = new HttpRequestException("provider down");
+        var provider = new FakeProvider
+        {
+            ExchangeError = failExchange ? error : null,
+            UserError = failExchange ? null : error
+        };
+        var snapshot = Snapshot(
+            Settings(),
+            [Rule("auth", RuleAction.Auth, true, provider: ProviderName)],
+            Providers(provider));
+
+        await RunAsync(snapshot, new FakeTimeProvider(), async (client, sessions) =>
+        {
+            var response = await SendCallbackAsync(client, "https://app.example.com/private");
+
+            Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+            Assert.Equal("Service unavailable\n", await response.Content.ReadAsStringAsync());
+            Assert.Equal("code123", provider.LastCode);
+            Assert.Null(FindCookieHeader(response, "_forward_auth"));
+            Assert.Empty(sessions.List(SessionKind.ForwardAuth));
+        });
+    }
+
+    [Fact]
+    public async Task LoginAndCallback_DefaultSettings_SetSecureCookiesWithDomainAndExpiry()
+    {
+        var provider = new FakeProvider { User = new ProviderUser(Email, true) };
+        var settings = Settings() with { InsecureCookie = false, CookieDomains = ["example.com"] };
+        var snapshot = Snapshot(
+            settings,
+            [Rule("auth", RuleAction.Auth, true, provider: ProviderName)],
+            Providers(provider));
+        var time = new FakeTimeProvider();
+
+        await RunAsync(snapshot, time, async (client, _) =>
+        {
+            var loginResponse = await client.SendAsync(Request("/private"));
+            Assert.Equal(HttpStatusCode.TemporaryRedirect, loginResponse.StatusCode);
+
+            var state = provider.LastState!;
+            var csrfName = "_forward_auth_csrf_" + state[..6];
+            var csrfHeader = FindCookieHeader(loginResponse, csrfName)!;
+
+            Assert.Contains("secure", csrfHeader, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("domain=app.example.com", csrfHeader, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("expires=" + HttpDate(time.GetUtcNow().AddHours(1)), csrfHeader, StringComparison.OrdinalIgnoreCase);
+
+            var callbackResponse = await client.SendAsync(Request(
+                "/_oauth?state=" + Uri.EscapeDataString(state) + "&code=code123",
+                cookies: [(csrfName, CookieValue(csrfHeader))]));
+
+            Assert.Equal(HttpStatusCode.TemporaryRedirect, callbackResponse.StatusCode);
+
+            var authHeader = FindCookieHeader(callbackResponse, "_forward_auth")!;
+
+            Assert.Contains("secure", authHeader, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("domain=example.com", authHeader, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("expires=" + HttpDate(time.GetUtcNow() + settings.Lifetime), authHeader, StringComparison.OrdinalIgnoreCase);
+
+            var csrfClear = FindCookieHeader(callbackResponse, csrfName)!;
+            Assert.Contains("secure", csrfClear, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("domain=app.example.com", csrfClear, StringComparison.OrdinalIgnoreCase);
+        });
+    }
+
+    [Fact]
+    public async Task LoginAndCallback_ViaAuthHost_UseAuthHostRedirectUriAndForwardedProto()
+    {
+        const string authHost = "auth.example.com";
+        var provider = new FakeProvider { User = new ProviderUser(Email, true) };
+        var settings = Settings() with { AuthHost = authHost, CookieDomains = ["example.com"] };
+        var snapshot = Snapshot(
+            settings,
+            [Rule("auth", RuleAction.Auth, true, provider: ProviderName)],
+            Providers(provider));
+        var time = new FakeTimeProvider();
+
+        await RunAsync(snapshot, time, async (client, _) =>
+        {
+            var loginResponse = await client.SendAsync(Request("/private", proto: "http"));
+
+            Assert.Equal(HttpStatusCode.TemporaryRedirect, loginResponse.StatusCode);
+            Assert.Equal("http://auth.example.com/_oauth", provider.LastRedirectUri);
+
+            var state = provider.LastState!;
+            Assert.EndsWith(":http://app.example.com/private", state);
+
+            var csrfName = "_forward_auth_csrf_" + state[..6];
+            var csrfHeader = FindCookieHeader(loginResponse, csrfName)!;
+            Assert.Contains("domain=example.com", csrfHeader, StringComparison.OrdinalIgnoreCase);
+
+            var callbackResponse = await client.SendAsync(Request(
+                "/_oauth?state=" + Uri.EscapeDataString(state) + "&code=code123",
+                cookies: [(csrfName, CookieValue(csrfHeader))],
+                host: authHost,
+                proto: "http"));
+
+            Assert.Equal(HttpStatusCode.TemporaryRedirect, callbackResponse.StatusCode);
+            Assert.Equal("http://app.example.com/private", callbackResponse.Headers.Location!.ToString());
+            Assert.Equal("http://auth.example.com/_oauth", provider.LastRedirectUri);
+
+            var authHeader = FindCookieHeader(callbackResponse, "_forward_auth")!;
+            Assert.Contains("domain=example.com", authHeader, StringComparison.OrdinalIgnoreCase);
+
+            // The cookie issued on the auth host must be accepted on the app host.
+            var appResponse = await client.SendAsync(Request(
+                "/private",
+                cookies: [("_forward_auth", CookieValue(authHeader))]));
+
+            Assert.Equal(HttpStatusCode.OK, appResponse.StatusCode);
+            Assert.Equal(Email, Assert.Single(appResponse.Headers.GetValues("X-Forwarded-User")));
+        });
+    }
+
+    [Fact]
     public async Task Logout_ClearsCookieAndRevokesSessionThenRedirects()
     {
         var provider = new FakeProvider();
@@ -676,12 +876,14 @@ public sealed class ForwardAuthTests
 
     private static HttpRequestMessage Request(
         string forwardedUri,
-        IEnumerable<(string Name, string Value)>? cookies = null)
+        IEnumerable<(string Name, string Value)>? cookies = null,
+        string host = Host,
+        string proto = Proto)
     {
         var request = new HttpRequestMessage(HttpMethod.Get, "/");
         request.Headers.TryAddWithoutValidation("X-Forwarded-Method", "GET");
-        request.Headers.TryAddWithoutValidation("X-Forwarded-Host", Host);
-        request.Headers.TryAddWithoutValidation("X-Forwarded-Proto", Proto);
+        request.Headers.TryAddWithoutValidation("X-Forwarded-Host", host);
+        request.Headers.TryAddWithoutValidation("X-Forwarded-Proto", proto);
         request.Headers.TryAddWithoutValidation("X-Forwarded-Uri", forwardedUri);
         request.Headers.TryAddWithoutValidation("X-Forwarded-For", "203.0.113.9");
 
@@ -721,6 +923,9 @@ public sealed class ForwardAuthTests
 
         return equal >= 0 ? pair[(equal + 1)..] : "";
     }
+
+    private static string HttpDate(DateTimeOffset value) =>
+        value.UtcDateTime.ToString("R", System.Globalization.CultureInfo.InvariantCulture);
 
     private static Task<HttpResponseMessage> SendCallbackAsync(HttpClient client, string redirect)
     {
@@ -807,6 +1012,8 @@ public sealed class ForwardAuthTests
 
         public Exception? ExchangeError { get; init; }
 
+        public Exception? UserError { get; init; }
+
         public string? LastRedirectUri { get; private set; }
 
         public string? LastState { get; private set; }
@@ -840,7 +1047,7 @@ public sealed class ForwardAuthTests
         }
 
         public Task<ProviderUser> GetUserAsync(ProviderToken token, CancellationToken cancellationToken) =>
-            Task.FromResult(User);
+            UserError is null ? Task.FromResult(User) : Task.FromException<ProviderUser>(UserError);
 
         public Task<ProviderTestResult> TestConnectionAsync(CancellationToken cancellationToken) =>
             Task.FromResult(ProviderTestResult.Ok("ok"));

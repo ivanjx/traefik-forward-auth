@@ -80,15 +80,25 @@
         </div>
 
         <div class="form-grid">
-            <div class="field span-2">
-                <label for="scopes">Scopes</label>
-                <textarea id="scopes" name="scopes" placeholder="openid email profile">@string.Join(' ', Model.Provider.Scopes)</textarea>
-                <span class="hint">Space or comma separated. Defaults are used when empty.</span>
-            </div>
+            @if (Model.Provider.Name is ProviderDefinition.GenericOAuth or ProviderDefinition.Oidc)
+            {
+                <div class="field span-2">
+                    <label for="scopes">Scopes</label>
+                    <textarea id="scopes" name="scopes" placeholder="@(Model.Provider.Name == ProviderDefinition.Oidc ? "openid profile email" : "profile email")">@string.Join(' ', Model.Provider.Scopes)</textarea>
+                    <span class="hint">
+                        Space or comma separated. Defaults are used when empty.
+                        @if (Model.Provider.Name == ProviderDefinition.Oidc)
+                        {
+                            <text>openid is always requested.</text>
+                        }
+                    </span>
+                </div>
+            }
 
             <div class="field">
                 <label for="prompt">Prompt</label>
-                <input id="prompt" type="text" name="prompt" value="@Model.Provider.Prompt" placeholder="select_account">
+                <input id="prompt" type="text" name="prompt" value="@Model.Provider.Prompt" placeholder="@(Model.Provider.Name == ProviderDefinition.Google ? "select_account" : "login")">
+                <span class="hint">@(Model.Provider.Name == ProviderDefinition.Google ? "Defaults to select_account when empty." : "Not sent when empty.")</span>
             </div>
 
             @if (Model.Provider.Name == ProviderDefinition.GenericOAuth)

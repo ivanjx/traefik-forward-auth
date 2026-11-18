@@ -42,6 +42,7 @@ public sealed class GenericOAuthProvider : IProvider
         ("client_id", _definition.ClientId),
         ("response_type", "code"),
         ("scope", string.Join(' ', _scopes)),
+        ("prompt", string.IsNullOrEmpty(_definition.Prompt) ? null : _definition.Prompt),
         ("redirect_uri", redirectUri),
         ("state", state),
         ("resource", string.IsNullOrEmpty(_definition.Resource) ? null : _definition.Resource));

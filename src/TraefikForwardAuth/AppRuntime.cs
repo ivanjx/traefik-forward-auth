@@ -7,6 +7,8 @@ public sealed record AppRuntimeOverrides
 {
     public GoogleEndpoints? GoogleEndpoints { get; init; }
 
+    public GitHubEndpoints? GitHubEndpoints { get; init; }
+
     public IHttpClientFactory? HttpClients { get; init; }
 
     public TimeProvider? TimeProvider { get; init; }
@@ -24,6 +26,7 @@ public sealed class AppRuntime : IAsyncDisposable
         ProviderFactory = new ProviderFactory(
             HttpClients,
             overrides?.GoogleEndpoints ?? GoogleEndpoints.Default,
+            overrides?.GitHubEndpoints ?? GitHubEndpoints.Default,
             Logger);
         Policy = new Policy.PolicyManager(Store, ProviderFactory, Logger, TimeProvider);
         Sessions = new Auth.SessionManager(Store, Logger, TimeProvider);
@@ -32,8 +35,7 @@ public sealed class AppRuntime : IAsyncDisposable
             options,
             Policy,
             Sessions,
-            overrides?.GoogleEndpoints ?? GoogleEndpoints.Default,
-            HttpClients,
+            ProviderFactory,
             Logger,
             TimeProvider);
     }

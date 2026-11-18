@@ -127,6 +127,106 @@ public sealed class ProviderTests
     }
 
     [Fact]
+    public void GitHubLoginUrlRequestsEmailScopeAndAccountPicker()
+    {
+        var provider = CreateGitHubProvider(GitHubEndpoints.Default);
+        var url = provider.GetLoginUrl("https://auth.example/_oauth", "state-1");
+        var query = ParseQuery(url);
+
+        Assert.StartsWith("https://github.com/login/oauth/authorize?", url);
+        Assert.Equal("client-id", query["client_id"]);
+        Assert.Equal("user:email", query["scope"]);
+        Assert.Equal("select_account", query["prompt"]);
+        Assert.Equal("https://auth.example/_oauth", query["redirect_uri"]);
+        Assert.Equal("state-1", query["state"]);
+    }
+
+    [Fact]
+    public async Task GitHubExchangeAndPrimaryVerifiedEmailRoundTrip()
+    {
+        Dictionary<string, string>? tokenForm = null;
+        string? tokenAccept = null;
+        string? authorization = null;
+        string? userAgent = null;
+
+        await using var server = await FakeServer.StartAsync(app =>
+        {
+            app.MapPost("/token", async (HttpContext context) =>
+            {
+                tokenAccept = context.Request.Headers.Accept.ToString();
+                tokenForm = (await context.Request.ReadFormAsync()).ToDictionary(pair => pair.Key, pair => pair.Value.ToString());
+                await WriteJsonAsync(context, """{"access_token":"access-1","token_type":"bearer","scope":"user:email"}""");
+            });
+
+            app.MapGet("/emails", async (HttpContext context) =>
+            {
+                authorization = context.Request.Headers.Authorization.ToString();
+                userAgent = context.Request.Headers.UserAgent.ToString();
+                await WriteJsonAsync(context, """
+                    [
+                        {"email":"other@example.com","primary":false,"verified":true,"visibility":null},
+                        {"email":"user@example.com","primary":true,"verified":true,"visibility":"public"}
+                    ]
+                    """);
+            });
+        });
+
+        var provider = CreateGitHubProvider(GitHubEndpointsFor(server));
+
+        var token = await provider.ExchangeCodeAsync("https://auth.example/_oauth", "code-1", CancellationToken.None);
+
+        Assert.Equal("access-1", token.AccessToken);
+        Assert.Equal("application/json", tokenAccept);
+        Assert.NotNull(tokenForm);
+        Assert.Equal("client-id", tokenForm["client_id"]);
+        Assert.Equal("client-secret", tokenForm["client_secret"]);
+        Assert.Equal("https://auth.example/_oauth", tokenForm["redirect_uri"]);
+        Assert.Equal("code-1", tokenForm["code"]);
+
+        var user = await provider.GetUserAsync(token, CancellationToken.None);
+
+        Assert.Equal("Bearer access-1", authorization);
+        Assert.False(string.IsNullOrEmpty(userAgent));
+        Assert.Equal("user@example.com", user.Email);
+        Assert.True(user.EmailVerified);
+    }
+
+    [Fact]
+    public async Task GitHubRejectsUnverifiedPrimaryEmail()
+    {
+        await using var server = await FakeServer.StartAsync(app =>
+            app.MapGet("/emails", (HttpContext context) => WriteJsonAsync(context, """
+                [
+                    {"email":"verified@example.com","primary":false,"verified":true},
+                    {"email":"user@example.com","primary":true,"verified":false}
+                ]
+                """)));
+
+        var provider = CreateGitHubProvider(GitHubEndpointsFor(server));
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => provider.GetUserAsync(new ProviderToken("access-1", null), CancellationToken.None));
+
+        Assert.Contains("not verified", exception.Message);
+    }
+
+    [Fact]
+    public async Task GitHubTokenErrorWithSuccessStatusThrows()
+    {
+        await using var server = await FakeServer.StartAsync(app =>
+            app.MapPost("/token", (HttpContext context) => WriteJsonAsync(
+                context,
+                """{"error":"bad_verification_code","error_description":"The code passed is incorrect or expired."}""")));
+
+        var provider = CreateGitHubProvider(GitHubEndpointsFor(server));
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => provider.ExchangeCodeAsync("https://auth.example/_oauth", "code-1", CancellationToken.None));
+
+        Assert.Contains("bad_verification_code", exception.Message);
+    }
+
+    [Fact]
     public void GenericLoginUrlUsesDefaultScopesAndResource()
     {
         var provider = CreateGenericProvider(new ProviderDefinition
@@ -389,7 +489,7 @@ public sealed class ProviderTests
     [Fact]
     public async Task ProviderFactoryReturnsNullForInvalidDefinition()
     {
-        var factory = new ProviderFactory(HttpClients, GoogleEndpoints.Default, Logger);
+        var factory = new ProviderFactory(HttpClients, GoogleEndpoints.Default, GitHubEndpoints.Default, Logger);
 
         var provider = await factory.CreateAsync(
             new ProviderDefinition { Name = ProviderDefinition.Google, ClientId = "", ClientSecret = "" },
@@ -405,7 +505,7 @@ public sealed class ProviderTests
         server.IssuerOverride = server.BaseUrl + "/somewhere-else";
         server.ServeKeys(OidcServer.RsaKey1Id);
 
-        var factory = new ProviderFactory(HttpClients, GoogleEndpoints.Default, Logger);
+        var factory = new ProviderFactory(HttpClients, GoogleEndpoints.Default, GitHubEndpoints.Default, Logger);
 
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(
             () => factory.CreateAsync(server.Definition, CancellationToken.None));
@@ -703,6 +803,18 @@ public sealed class ProviderTests
             endpoints,
             Logger);
 
+    private static GitHubProvider CreateGitHubProvider(GitHubEndpoints endpoints) =>
+        new(
+            new ProviderDefinition
+            {
+                Name = ProviderDefinition.GitHub,
+                ClientId = "client-id",
+                ClientSecret = "client-secret"
+            },
+            HttpClients,
+            endpoints,
+            Logger);
+
     private static GenericOAuthProvider CreateGenericProvider(ProviderDefinition definition) =>
         new(definition, HttpClients, Logger);
 
@@ -710,6 +822,11 @@ public sealed class ProviderTests
         new Uri($"{server.BaseUrl}/auth"),
         new Uri($"{server.BaseUrl}/token"),
         new Uri($"{server.BaseUrl}/userinfo"));
+
+    private static GitHubEndpoints GitHubEndpointsFor(FakeServer server) => new(
+        new Uri($"{server.BaseUrl}/authorize"),
+        new Uri($"{server.BaseUrl}/token"),
+        new Uri($"{server.BaseUrl}/emails"));
 
     private static ProviderDefinition GenericDefinition(FakeServer server, string tokenStyle) => new()
     {

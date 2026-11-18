@@ -197,7 +197,7 @@ public static class AdminUi
         ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"];
 
     public static readonly IReadOnlyList<string> ProviderTypes =
-        [ProviderDefinition.Google, ProviderDefinition.Oidc, ProviderDefinition.GenericOAuth];
+        [ProviderDefinition.Google, ProviderDefinition.GitHub, ProviderDefinition.Oidc, ProviderDefinition.GenericOAuth];
 
     public static IReadOnlyList<OperatorOption> OperatorsFor(ConditionField field) => field switch
     {
@@ -254,6 +254,7 @@ public static class AdminUi
     public static string Label(ProviderDefinition definition) => definition.Name switch
     {
         ProviderDefinition.Google => "Google",
+        ProviderDefinition.GitHub => "GitHub",
         ProviderDefinition.Oidc => "OpenID Connect",
         ProviderDefinition.GenericOAuth => "Generic OAuth2",
         _ => definition.Name

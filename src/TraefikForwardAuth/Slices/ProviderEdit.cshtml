@@ -32,7 +32,7 @@
                     }
                 </label>
                 <input id="client_secret" type="password" name="client_secret" value="" autocomplete="new-password" placeholder="@(Model.HasStoredSecret ? "Leave blank to keep the current secret" : "")">
-                @if (Model.HasStoredSecret && Model.Provider.Name != ProviderDefinition.Google)
+                @if (Model.HasStoredSecret && Model.Provider.Name is not (ProviderDefinition.Google or ProviderDefinition.GitHub))
                 {
                     <span class="hint">Re-enter it when changing the issuer, token or user info URL.</span>
                 }
@@ -97,8 +97,8 @@
 
             <div class="field">
                 <label for="prompt">Prompt</label>
-                <input id="prompt" type="text" name="prompt" value="@Model.Provider.Prompt" placeholder="@(Model.Provider.Name == ProviderDefinition.Google ? "select_account" : "login")">
-                <span class="hint">@(Model.Provider.Name == ProviderDefinition.Google ? "Defaults to select_account when empty." : "Not sent when empty.")</span>
+                <input id="prompt" type="text" name="prompt" value="@Model.Provider.Prompt" placeholder="@(Model.Provider.Name is ProviderDefinition.Google or ProviderDefinition.GitHub ? "select_account" : "login")">
+                <span class="hint">@(Model.Provider.Name is ProviderDefinition.Google or ProviderDefinition.GitHub ? "Defaults to select_account when empty." : "Not sent when empty.")</span>
             </div>
 
             @if (Model.Provider.Name == ProviderDefinition.GenericOAuth)

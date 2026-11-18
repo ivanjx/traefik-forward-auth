@@ -36,7 +36,8 @@ public static class Program
             runtime.Logger.Info(
                 "Listening",
                 ("forward_auth", $"0.0.0.0:{options.Port}"),
-                ("admin", $"0.0.0.0:{options.AdminPort}"));
+                ("admin", $"0.0.0.0:{options.AdminPort}"),
+                ("admin_login", options.AdminProvider));
 
             await Task.WhenAny(
                 forwardAuth.WaitForShutdownAsync(),

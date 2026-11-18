@@ -70,6 +70,44 @@ public sealed class AdminUiTests
     }
 
     [Fact]
+    public async Task OidcAdminLoginRetriesDiscoveryAndSignsInVerifiedAdmin()
+    {
+        await using var oidc = await OidcServer.StartAsync();
+        oidc.DiscoveryFails = true;
+        oidc.ServeKeys(OidcServer.RsaKey1Id);
+        oidc.IdToken = oidc.SignRsa(JwtSigner.Payload(oidc.Issuer, oidc.ClientId, "admin@example.com", emailVerified: true));
+
+        await using var environment = await AdminEnvironment.StartAsync(configure: options => options with
+        {
+            AdminProvider = ProviderDefinition.Oidc,
+            AdminIssuerUrl = oidc.Issuer,
+            AdminClientId = oidc.ClientId,
+            AdminClientSecret = "client-secret"
+        });
+
+        var unavailable = await environment.GetAsync("/auth/login?returnUrl=/settings");
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, unavailable.StatusCode);
+
+        oidc.DiscoveryFails = false;
+
+        var login = await environment.GetAsync("/auth/login?returnUrl=/settings");
+        Assert.Equal(HttpStatusCode.TemporaryRedirect, login.StatusCode);
+
+        var location = login.Headers.Location!;
+        var query = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(location.Query);
+
+        Assert.StartsWith(oidc.BaseUrl + "/authorize?", location.ToString());
+        Assert.False(query.ContainsKey("prompt"));
+
+        var callback = await environment.GetAsync(
+            $"/auth/callback?code=fake-code&state={Uri.EscapeDataString(query["state"].ToString())}");
+
+        Assert.Equal(HttpStatusCode.SeeOther, callback.StatusCode);
+        Assert.Equal("/settings", callback.Headers.Location!.ToString());
+        Assert.True(environment.Client.Cookies.Cookies.ContainsKey("_tfa_admin"));
+    }
+
+    [Fact]
     public async Task SettingsSavePersistsValues()
     {
         await using var environment = await AdminEnvironment.StartAsync();
@@ -724,7 +762,9 @@ public sealed class AdminUiTests
 
         public TestHttpClient Client { get; }
 
-        public static async Task<AdminEnvironment> StartAsync(string adminEmail = "admin@example.com")
+        public static async Task<AdminEnvironment> StartAsync(
+            string adminEmail = "admin@example.com",
+            Func<TfaOptions, TfaOptions>? configure = null)
         {
             var dataDir = Path.Combine(Path.GetTempPath(), "tfa-admin-ui-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(dataDir);
@@ -733,13 +773,19 @@ public sealed class AdminUiTests
             provider.Email = adminEmail;
             var options = new TfaOptions
             {
-                AdminGoogleClientId = "admin-client",
-                AdminGoogleClientSecret = "admin-secret",
+                AdminProvider = TraefikForwardAuth.Policy.ProviderDefinition.Google,
+                AdminClientId = "admin-client",
+                AdminClientSecret = "admin-secret",
                 AdminEmails = new HashSet<string>([adminEmail], StringComparer.OrdinalIgnoreCase),
                 DataDir = dataDir,
                 LogLevel = TraefikForwardAuth.Logging.TfaLogLevel.Warn,
                 LogFormat = TraefikForwardAuth.Logging.TfaLogFormat.Text
             };
+
+            if (configure is not null)
+            {
+                options = configure(options);
+            }
 
             var runtime = new AppRuntime(
                 options,

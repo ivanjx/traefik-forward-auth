@@ -545,7 +545,7 @@ public sealed class StorageTests
                 "admin@example.com",
                 CancellationToken.None);
 
-            var factory = new ProviderFactory(new StubHttpClientFactory(), GoogleEndpoints.Default, logger);
+            var factory = new ProviderFactory(new StubHttpClientFactory(), GoogleEndpoints.Default, GitHubEndpoints.Default, logger);
             var manager = new PolicyManager(store, factory, logger);
 
             await manager.InitializeAsync(CancellationToken.None);
@@ -593,7 +593,7 @@ public sealed class StorageTests
 
             var issuer = new DiscoveryHandler { Available = false };
             var timers = new ManualTimeProvider();
-            var factory = new ProviderFactory(new HandlerHttpClientFactory(issuer), GoogleEndpoints.Default, logger);
+            var factory = new ProviderFactory(new HandlerHttpClientFactory(issuer), GoogleEndpoints.Default, GitHubEndpoints.Default, logger);
             await using var manager = new PolicyManager(store, factory, logger, timers);
 
             await manager.InitializeAsync(CancellationToken.None);
@@ -626,7 +626,7 @@ public sealed class StorageTests
             await store.UpsertProviderAsync(OidcDefinition(), "admin@example.com", CancellationToken.None);
 
             var issuer = new DiscoveryHandler { BlockFirstRequest = true };
-            var factory = new ProviderFactory(new HandlerHttpClientFactory(issuer), GoogleEndpoints.Default, logger);
+            var factory = new ProviderFactory(new HandlerHttpClientFactory(issuer), GoogleEndpoints.Default, GitHubEndpoints.Default, logger);
             await using var manager = new PolicyManager(store, factory, logger, new ManualTimeProvider());
 
             // The first rebuild loads the configuration without the rule, then stalls in discovery.

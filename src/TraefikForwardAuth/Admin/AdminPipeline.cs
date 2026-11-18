@@ -1402,5 +1402,5 @@ internal sealed class AdminPipeline
     private static Task RenderPartialAsync(HttpContext context, RazorSlice slice) => RenderAsync(context, slice);
 
     private static bool IsProviderName(string name) =>
-        name is ProviderDefinition.Google or ProviderDefinition.Oidc or ProviderDefinition.GenericOAuth;
+        name is ProviderDefinition.Google or ProviderDefinition.GitHub or ProviderDefinition.Oidc or ProviderDefinition.GenericOAuth;
 }

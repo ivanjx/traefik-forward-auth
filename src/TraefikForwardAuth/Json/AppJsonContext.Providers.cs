@@ -5,6 +5,7 @@ namespace TraefikForwardAuth.Json;
 
 [JsonSerializable(typeof(TokenResponse))]
 [JsonSerializable(typeof(UserInfo))]
+[JsonSerializable(typeof(GitHubEmail[]))]
 [JsonSerializable(typeof(OidcDiscoveryDocument))]
 [JsonSerializable(typeof(JwksDocument))]
 [JsonSerializable(typeof(JwtHeader))]

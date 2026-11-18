@@ -9,7 +9,7 @@ namespace TraefikForwardAuth.Rules;
 public static class ConditionCompiler
 {
     private static readonly string[] KnownProviders =
-        [ProviderDefinition.Google, ProviderDefinition.Oidc, ProviderDefinition.GenericOAuth];
+        [ProviderDefinition.Google, ProviderDefinition.GitHub, ProviderDefinition.Oidc, ProviderDefinition.GenericOAuth];
 
     private static readonly RegexOptions RegexFlags = RegexOptions.NonBacktracking | RegexOptions.CultureInvariant;
 

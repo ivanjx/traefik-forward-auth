@@ -298,7 +298,7 @@ public sealed class AdminService
             throw new ArgumentException("Lifetime must be between 1 second and 365 days.");
         }
 
-        if (settings.DefaultProvider is not (ProviderDefinition.Google or ProviderDefinition.Oidc or ProviderDefinition.GenericOAuth))
+        if (settings.DefaultProvider is not (ProviderDefinition.Google or ProviderDefinition.GitHub or ProviderDefinition.Oidc or ProviderDefinition.GenericOAuth))
         {
             throw new ArgumentException("Unknown default provider.");
         }

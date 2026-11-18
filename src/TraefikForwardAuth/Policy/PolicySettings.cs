@@ -37,6 +37,7 @@ public sealed record PolicySettings
 public sealed record ProviderDefinition
 {
     public const string Google = "google";
+    public const string GitHub = "github";
     public const string Oidc = "oidc";
     public const string GenericOAuth = "generic-oauth";
 
@@ -75,6 +76,7 @@ public sealed record ProviderDefinition
         switch (Name)
         {
             case Google:
+            case GitHub:
                 if (string.IsNullOrWhiteSpace(ClientId)) errors.Add("Client ID is required.");
                 if (string.IsNullOrWhiteSpace(ClientSecret)) errors.Add("Client secret is required.");
                 break;

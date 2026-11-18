@@ -218,8 +218,9 @@ public sealed class E2ETests
 
             var options = new TfaOptions
             {
-                AdminGoogleClientId = "admin-client",
-                AdminGoogleClientSecret = "admin-secret",
+                AdminProvider = TraefikForwardAuth.Policy.ProviderDefinition.Google,
+                AdminClientId = "admin-client",
+                AdminClientSecret = "admin-secret",
                 AdminEmails = new HashSet<string>([adminEmail], StringComparer.OrdinalIgnoreCase),
                 DataDir = dataDir,
                 LogLevel = TraefikForwardAuth.Logging.TfaLogLevel.Warn,

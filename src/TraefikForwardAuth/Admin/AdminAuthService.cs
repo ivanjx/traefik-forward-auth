@@ -21,35 +21,35 @@ public sealed class AdminAuthService
     private readonly TfaOptions _options;
     private readonly PolicyManager _policy;
     private readonly SessionManager _sessions;
-    private readonly GoogleProvider _provider;
+    private readonly ProviderFactory _providerFactory;
+    private readonly ProviderDefinition _definition;
     private readonly TfaLogger _logger;
     private readonly TimeProvider _timeProvider;
+    private IProvider? _provider;
 
     public AdminAuthService(
         TfaOptions options,
         PolicyManager policy,
         SessionManager sessions,
-        GoogleEndpoints googleEndpoints,
-        IHttpClientFactory httpClients,
+        ProviderFactory providerFactory,
         TfaLogger logger,
         TimeProvider timeProvider)
     {
         _options = options;
         _policy = policy;
         _sessions = sessions;
+        _providerFactory = providerFactory;
         _logger = logger;
         _timeProvider = timeProvider;
-        _provider = new GoogleProvider(
-            new ProviderDefinition
-            {
-                Name = ProviderDefinition.Google,
-                ClientId = options.AdminGoogleClientId,
-                ClientSecret = options.AdminGoogleClientSecret,
-                Prompt = "select_account"
-            },
-            httpClients,
-            googleEndpoints,
-            logger);
+        _definition = new ProviderDefinition
+        {
+            Name = options.AdminProvider,
+            ClientId = options.AdminClientId,
+            ClientSecret = options.AdminClientSecret,
+            IssuerUrl = options.AdminIssuerUrl,
+            // OIDC providers may reject prompt values they do not support, so only GitHub and Google get the account picker.
+            Prompt = options.AdminProvider == ProviderDefinition.Oidc ? null : "select_account"
+        };
     }
 
     public bool IsAdminEmail(string email) => _options.AdminEmails.Contains(email);
@@ -111,8 +111,21 @@ public sealed class AdminAuthService
         return Task.FromResult<AdminIdentity?>(new AdminIdentity(identity.Email, identity.SessionId));
     }
 
-    public Task HandleLoginAsync(HttpContext context, CancellationToken cancellationToken)
+    public async Task HandleLoginAsync(HttpContext context, CancellationToken cancellationToken)
     {
+        IProvider provider;
+
+        try
+        {
+            provider = await GetProviderAsync(cancellationToken);
+        }
+        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            _logger.Error("Admin login provider is unavailable", ("provider", _definition.Name), ("error", exception.Message));
+            await Http.GoHttpCompat.WriteErrorAsync(context, StatusCodes.Status503ServiceUnavailable, "Service unavailable");
+            return;
+        }
+
         var returnUrl = SafeReturnUrl(context.Request.Query["returnUrl"].ToString());
         var nonce = CsrfService.NewNonce();
         var state = $"{nonce}:{returnUrl}";
@@ -128,12 +141,10 @@ public sealed class AdminAuthService
             sameSite: SameSiteMode.Lax);
 
         var redirectUri = $"{BaseUrl(context)}/auth/callback";
-        var loginUrl = _provider.GetLoginUrl(redirectUri, state);
+        var loginUrl = provider.GetLoginUrl(redirectUri, state);
 
         context.Response.StatusCode = StatusCodes.Status307TemporaryRedirect;
         context.Response.Headers.Location = loginUrl;
-
-        return Task.CompletedTask;
     }
 
     public async Task HandleCallbackAsync(HttpContext context, CancellationToken cancellationToken)
@@ -163,8 +174,9 @@ public sealed class AdminAuthService
         try
         {
             var redirectUri = $"{BaseUrl(context)}/auth/callback";
-            var token = await _provider.ExchangeCodeAsync(redirectUri, code, cancellationToken);
-            user = await _provider.GetUserAsync(token, cancellationToken);
+            var provider = await GetProviderAsync(cancellationToken);
+            var token = await provider.ExchangeCodeAsync(redirectUri, code, cancellationToken);
+            user = await provider.GetUserAsync(token, cancellationToken);
         }
         catch (Exception exception)
         {
@@ -184,7 +196,7 @@ public sealed class AdminAuthService
         var session = await _sessions.CreateAsync(
             SessionKind.Admin,
             user.Email,
-            ProviderDefinition.Google,
+            _options.AdminProvider,
             CookieService.StripPort(RequestHost(context)),
             ClientIp(context),
             context.Request.Headers.UserAgent.ToString(),
@@ -216,6 +228,25 @@ public sealed class AdminAuthService
     {
         Http.GoHttpCompat.DeleteCookie(context, AdminCookieName, domain: null, secure: true);
         DeleteStateCookie(context);
+    }
+
+    /// <summary>
+    /// Creates the provider on first use and caches it. OIDC discovery needs the issuer to be
+    /// reachable, so a failure is not cached and the next login tries again.
+    /// </summary>
+    private async Task<IProvider> GetProviderAsync(CancellationToken cancellationToken)
+    {
+        if (Volatile.Read(ref _provider) is { } cached)
+        {
+            return cached;
+        }
+
+        var provider = await _providerFactory.CreateAsync(_definition, cancellationToken)
+            ?? throw new InvalidOperationException("Admin login provider configuration is invalid.");
+
+        Volatile.Write(ref _provider, provider);
+
+        return provider;
     }
 
     private static void DeleteStateCookie(HttpContext context) =>

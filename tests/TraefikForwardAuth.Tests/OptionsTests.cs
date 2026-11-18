@@ -1,4 +1,5 @@
 using TraefikForwardAuth.Logging;
+using TraefikForwardAuth.Policy;
 
 namespace TraefikForwardAuth.Tests;
 
@@ -7,6 +8,11 @@ public sealed class OptionsTests
 {
     private static readonly string[] Variables =
     [
+        "ADMIN_OIDC_ISSUER_URL",
+        "ADMIN_OIDC_CLIENT_ID",
+        "ADMIN_OIDC_CLIENT_SECRET",
+        "ADMIN_GITHUB_CLIENT_ID",
+        "ADMIN_GITHUB_CLIENT_SECRET",
         "ADMIN_GOOGLE_CLIENT_ID",
         "ADMIN_GOOGLE_CLIENT_SECRET",
         "ADMIN_EMAILS",
@@ -25,8 +31,9 @@ public sealed class OptionsTests
 
         var exception = Assert.Throws<TfaOptionsException>(TfaOptions.FromEnvironment);
 
-        Assert.Contains(exception.Errors, error => error.Contains("ADMIN_GOOGLE_CLIENT_ID"));
-        Assert.Contains(exception.Errors, error => error.Contains("ADMIN_GOOGLE_CLIENT_SECRET"));
+        Assert.Contains(
+            exception.Errors,
+            error => error.Contains("ADMIN_OIDC_ISSUER_URL") && error.Contains("ADMIN_GITHUB_CLIENT_ID") && error.Contains("ADMIN_GOOGLE_CLIENT_ID"));
         Assert.Contains(exception.Errors, error => error.Contains("ADMIN_EMAILS"));
     }
 
@@ -34,14 +41,16 @@ public sealed class OptionsTests
     public void ParsesDefaultsAndAdminEmails()
     {
         using var scope = new EnvironmentScope();
+        scope.ClearAll();
         scope.Set("ADMIN_GOOGLE_CLIENT_ID", "client");
         scope.Set("ADMIN_GOOGLE_CLIENT_SECRET", "secret");
         scope.Set("ADMIN_EMAILS", " Admin@Example.com , second@example.com ");
 
         var options = TfaOptions.FromEnvironment();
 
-        Assert.Equal("client", options.AdminGoogleClientId);
-        Assert.Equal("secret", options.AdminGoogleClientSecret);
+        Assert.Equal(ProviderDefinition.Google, options.AdminProvider);
+        Assert.Equal("client", options.AdminClientId);
+        Assert.Equal("secret", options.AdminClientSecret);
         Assert.Contains("admin@example.com", options.AdminEmails);
         Assert.Contains("SECOND@example.com", options.AdminEmails);
         Assert.Equal(4181, options.Port);
@@ -49,6 +58,92 @@ public sealed class OptionsTests
         Assert.Equal("/data", options.DataDir);
         Assert.Equal(TfaLogLevel.Warn, options.LogLevel);
         Assert.Equal(TfaLogFormat.Text, options.LogFormat);
+    }
+
+    [Fact]
+    public void GitHubAdminClientTakesPriorityOverGoogle()
+    {
+        using var scope = new EnvironmentScope();
+        scope.ClearAll();
+        scope.Set("ADMIN_GITHUB_CLIENT_ID", "github-client");
+        scope.Set("ADMIN_GITHUB_CLIENT_SECRET", "github-secret");
+        scope.Set("ADMIN_GOOGLE_CLIENT_ID", "google-client");
+        scope.Set("ADMIN_GOOGLE_CLIENT_SECRET", "google-secret");
+        scope.Set("ADMIN_EMAILS", "admin@example.com");
+
+        var options = TfaOptions.FromEnvironment();
+
+        Assert.Equal(ProviderDefinition.GitHub, options.AdminProvider);
+        Assert.Equal("github-client", options.AdminClientId);
+        Assert.Equal("github-secret", options.AdminClientSecret);
+    }
+
+    [Fact]
+    public void OidcAdminClientTakesPriorityOverGitHubAndGoogle()
+    {
+        using var scope = new EnvironmentScope();
+        scope.ClearAll();
+        scope.Set("ADMIN_OIDC_ISSUER_URL", "https://idp.example.com/realms/main");
+        scope.Set("ADMIN_OIDC_CLIENT_ID", "oidc-client");
+        scope.Set("ADMIN_OIDC_CLIENT_SECRET", "oidc-secret");
+        scope.Set("ADMIN_GITHUB_CLIENT_ID", "github-client");
+        scope.Set("ADMIN_GITHUB_CLIENT_SECRET", "github-secret");
+        scope.Set("ADMIN_GOOGLE_CLIENT_ID", "google-client");
+        scope.Set("ADMIN_GOOGLE_CLIENT_SECRET", "google-secret");
+        scope.Set("ADMIN_EMAILS", "admin@example.com");
+
+        var options = TfaOptions.FromEnvironment();
+
+        Assert.Equal(ProviderDefinition.Oidc, options.AdminProvider);
+        Assert.Equal("https://idp.example.com/realms/main", options.AdminIssuerUrl);
+        Assert.Equal("oidc-client", options.AdminClientId);
+        Assert.Equal("oidc-secret", options.AdminClientSecret);
+    }
+
+    [Fact]
+    public void IncompleteOidcAdminClientReportsEveryMissingVariable()
+    {
+        using var scope = new EnvironmentScope();
+        scope.ClearAll();
+        scope.Set("ADMIN_OIDC_ISSUER_URL", "https://idp.example.com");
+        scope.Set("ADMIN_GOOGLE_CLIENT_ID", "google-client");
+        scope.Set("ADMIN_GOOGLE_CLIENT_SECRET", "google-secret");
+        scope.Set("ADMIN_EMAILS", "admin@example.com");
+
+        var exception = Assert.Throws<TfaOptionsException>(TfaOptions.FromEnvironment);
+
+        Assert.Contains(exception.Errors, error => error.StartsWith("ADMIN_OIDC_CLIENT_ID is required"));
+        Assert.Contains(exception.Errors, error => error.StartsWith("ADMIN_OIDC_CLIENT_SECRET is required"));
+    }
+
+    [Fact]
+    public void RelativeOidcIssuerUrlThrows()
+    {
+        using var scope = new EnvironmentScope();
+        scope.ClearAll();
+        scope.Set("ADMIN_OIDC_ISSUER_URL", "idp.example.com");
+        scope.Set("ADMIN_OIDC_CLIENT_ID", "oidc-client");
+        scope.Set("ADMIN_OIDC_CLIENT_SECRET", "oidc-secret");
+        scope.Set("ADMIN_EMAILS", "admin@example.com");
+
+        var exception = Assert.Throws<TfaOptionsException>(TfaOptions.FromEnvironment);
+
+        Assert.Contains(exception.Errors, error => error.StartsWith("ADMIN_OIDC_ISSUER_URL must be"));
+    }
+
+    [Fact]
+    public void IncompleteGitHubAdminClientThrowsEvenWithGoogleConfigured()
+    {
+        using var scope = new EnvironmentScope();
+        scope.ClearAll();
+        scope.Set("ADMIN_GITHUB_CLIENT_ID", "github-client");
+        scope.Set("ADMIN_GOOGLE_CLIENT_ID", "google-client");
+        scope.Set("ADMIN_GOOGLE_CLIENT_SECRET", "google-secret");
+        scope.Set("ADMIN_EMAILS", "admin@example.com");
+
+        var exception = Assert.Throws<TfaOptionsException>(TfaOptions.FromEnvironment);
+
+        Assert.Contains(exception.Errors, error => error.StartsWith("ADMIN_GITHUB_CLIENT_SECRET is required"));
     }
 
     [Fact]

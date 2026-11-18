@@ -88,7 +88,7 @@ public static class AdminForms
 
         if (!AdminUi.ProviderTypes.Contains(providerText, StringComparer.Ordinal))
         {
-            errors.Add("Default provider must be google, oidc or generic-oauth.");
+            errors.Add("Default provider must be google, github, oidc or generic-oauth.");
         }
 
         var settings = current with

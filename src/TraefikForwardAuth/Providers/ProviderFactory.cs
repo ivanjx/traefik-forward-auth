@@ -7,12 +7,18 @@ public sealed class ProviderFactory
 {
     private readonly IHttpClientFactory _httpClients;
     private readonly GoogleEndpoints _googleEndpoints;
+    private readonly GitHubEndpoints _gitHubEndpoints;
     private readonly TfaLogger _logger;
 
-    public ProviderFactory(IHttpClientFactory httpClients, GoogleEndpoints googleEndpoints, TfaLogger logger)
+    public ProviderFactory(
+        IHttpClientFactory httpClients,
+        GoogleEndpoints googleEndpoints,
+        GitHubEndpoints gitHubEndpoints,
+        TfaLogger logger)
     {
         _httpClients = httpClients;
         _googleEndpoints = googleEndpoints;
+        _gitHubEndpoints = gitHubEndpoints;
         _logger = logger;
     }
 
@@ -34,6 +40,9 @@ public sealed class ProviderFactory
         {
             case ProviderDefinition.Google:
                 return new GoogleProvider(definition, _httpClients, _googleEndpoints, _logger);
+
+            case ProviderDefinition.GitHub:
+                return new GitHubProvider(definition, _httpClients, _gitHubEndpoints, _logger);
 
             case ProviderDefinition.GenericOAuth:
                 return new GenericOAuthProvider(definition, _httpClients, _logger);

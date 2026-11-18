@@ -13,7 +13,7 @@ flowchart LR
   FA -->|200 + X-Forwarded-User| T
   FA <-->|OAuth/OIDC| P[Provider]
   A[Admin browser] -->|:4182| ADM[Admin UI]
-  ADM <-->|Google login| G[Google]
+  ADM <-->|OIDC, GitHub or Google login| G[Identity provider]
   ADM --> DB[(SQLite)]
   DB -->|snapshot| FA
 ```
@@ -41,8 +41,9 @@ services:
   traefik-forward-auth:
     image: ghcr.io/ivanjx/traefik-forward-auth:latest
     environment:
-      ADMIN_GOOGLE_CLIENT_ID: your-admin-client-id
-      ADMIN_GOOGLE_CLIENT_SECRET: your-admin-client-secret
+      # OIDC, GitHub or Google; see "Environment variables" for priority
+      ADMIN_GITHUB_CLIENT_ID: your-admin-client-id
+      ADMIN_GITHUB_CLIENT_SECRET: your-admin-client-secret
       ADMIN_EMAILS: you@example.com
     volumes:
       - tfa-data:/data
@@ -117,7 +118,7 @@ http:
           - X-Forwarded-Role
 ```
 
-1. Register `https://tfa-admin.example.com/auth/callback` as an authorized redirect URI on the **admin** Google OAuth client.
+1. Register `https://tfa-admin.example.com/auth/callback` as the redirect URI on the **admin** OAuth client (OIDC client, GitHub OAuth app or Google OAuth client).
 2. Open `https://tfa-admin.example.com` and sign in with an address listed in `ADMIN_EMAILS`.
 3. Add a forward-auth provider under **Providers**. Register the forward-auth callback URL, e.g. `https://whoami.example.com/_oauth`, on that provider's OAuth client.
 4. Add an access entry under **Users & access** (email or domain).
@@ -127,20 +128,33 @@ http:
 
 | Variable | Required | Default | Purpose |
 |---|---|---|---|
-| `ADMIN_GOOGLE_CLIENT_ID` | yes | | Google OAuth client used to sign in to the admin UI |
-| `ADMIN_GOOGLE_CLIENT_SECRET` | yes | | Secret for that client |
-| `ADMIN_EMAILS` | yes | | Comma-separated Google accounts allowed into the admin UI |
+| `ADMIN_OIDC_ISSUER_URL` | see below | | OIDC issuer used to sign in to the admin UI; discovery is read from `/.well-known/openid-configuration` |
+| `ADMIN_OIDC_CLIENT_ID` | see below | | Client ID registered with that issuer |
+| `ADMIN_OIDC_CLIENT_SECRET` | see below | | Secret for that client |
+| `ADMIN_GITHUB_CLIENT_ID` | see below | | GitHub OAuth app used to sign in to the admin UI |
+| `ADMIN_GITHUB_CLIENT_SECRET` | see below | | Secret for that app |
+| `ADMIN_GOOGLE_CLIENT_ID` | see below | | Google OAuth client used to sign in to the admin UI |
+| `ADMIN_GOOGLE_CLIENT_SECRET` | see below | | Secret for that client |
+| `ADMIN_EMAILS` | yes | | Comma-separated email addresses allowed into the admin UI |
 | `PORT` | no | `4181` | Forward-auth listener |
 | `ADMIN_PORT` | no | `4182` | Admin UI listener |
 | `DATA_DIR` | no | `/data` | Directory containing the SQLite database |
 | `LOG_LEVEL` | no | `warn` | `trace`, `debug`, `info`, `warn`, `error`, `fatal`, `panic` |
 | `LOG_FORMAT` | no | `text` | `text`, `json`, `pretty` |
 
+Admin login needs one complete client: the three OIDC variables, the GitHub pair, or the Google pair. When several are set, the first complete one wins in the order OIDC, GitHub, Google. Setting only part of a group is an error.
+
+OIDC discovery runs on the first admin login, not at startup. If the issuer is unreachable, the login page returns `503` and the next login tries again.
+
 The process exits with code 1 when a required variable is missing or invalid. Everything else is configured in the admin UI.
 
-### Google redirect URIs
+### Email verification
 
-The admin client must register:
+GitHub sign-in, for both the admin UI and forward auth, uses the account's primary email (requested with the `user:email` scope) and is rejected when that email is not verified. Admin sign-in with Google requires Google's `verified_email` flag. Admin sign-in with OIDC requires an `email_verified: true` claim in the ID token; issuers that omit the claim cannot be used for the admin UI.
+
+### Redirect URIs
+
+The admin OAuth client (OIDC redirect URI, GitHub authorization callback URL or Google authorized redirect URI) must register:
 
 ```
 https://<admin-host>/auth/callback
@@ -157,6 +171,8 @@ If you use **Auth host** in Settings, only the auth host needs to be registered:
 ```
 https://auth.example.com/_oauth
 ```
+
+A GitHub OAuth app has a single callback URL. GitHub accepts a `redirect_uri` whose host matches it excluding subdomains and whose path is under its path, so a callback of `https://example.com/_oauth` covers `https://app.example.com/_oauth`. Otherwise use **Auth host**.
 
 ## Rules
 
@@ -176,7 +192,7 @@ The callback path (`/_oauth` by default) and `/_oauth/logout` are handled before
 
 Access entries use the rule's own entries when it has any; otherwise the global entries apply. No entries means any authenticated user is allowed.
 
-Signed-in users without access, or with an invalid cookie, get a `401` page with a sign-out button. Visiting `https://<host>/_oauth/logout` on any protected host signs out; with Google the next login shows the account chooser.
+Signed-in users without access, or with an invalid cookie, get a `401` page with a sign-out button. Visiting `https://<host>/_oauth/logout` on any protected host signs out; with Google or GitHub the next login shows the account chooser.
 
 ## Development
 

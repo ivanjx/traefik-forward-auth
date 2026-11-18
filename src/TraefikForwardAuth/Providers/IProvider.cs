@@ -19,6 +19,14 @@ public sealed record GoogleEndpoints(Uri LoginUrl, Uri TokenUrl, Uri UserInfoUrl
         new Uri("https://www.googleapis.com/oauth2/v2/userinfo"));
 }
 
+public sealed record GitHubEndpoints(Uri LoginUrl, Uri TokenUrl, Uri EmailsUrl)
+{
+    public static GitHubEndpoints Default { get; } = new(
+        new Uri("https://github.com/login/oauth/authorize"),
+        new Uri("https://github.com/login/oauth/access_token"),
+        new Uri("https://api.github.com/user/emails"));
+}
+
 public interface IProvider
 {
     string Name { get; }

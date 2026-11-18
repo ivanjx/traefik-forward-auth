@@ -30,6 +30,18 @@ internal sealed class UserInfo
     public bool? VerifiedEmail { get; init; }
 }
 
+internal sealed class GitHubEmail
+{
+    [JsonPropertyName("email")]
+    public string? Email { get; init; }
+
+    [JsonPropertyName("primary")]
+    public bool Primary { get; init; }
+
+    [JsonPropertyName("verified")]
+    public bool Verified { get; init; }
+}
+
 internal sealed class OidcDiscoveryDocument
 {
     [JsonPropertyName("issuer")]

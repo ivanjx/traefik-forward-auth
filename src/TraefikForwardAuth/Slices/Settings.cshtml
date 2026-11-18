@@ -93,6 +93,7 @@
                 <label for="default_provider">Default provider</label>
                 <select id="default_provider" name="default_provider">
                     <option value="google" selected="@(Model.Settings.DefaultProvider == ProviderDefinition.Google)">Google</option>
+                    <option value="github" selected="@(Model.Settings.DefaultProvider == ProviderDefinition.GitHub)">GitHub</option>
                     <option value="oidc" selected="@(Model.Settings.DefaultProvider == ProviderDefinition.Oidc)">OpenID Connect</option>
                     <option value="generic-oauth" selected="@(Model.Settings.DefaultProvider == ProviderDefinition.GenericOAuth)">Generic OAuth2</option>
                 </select>

@@ -74,5 +74,6 @@ public static class HostNormalizer
         return host;
     }
 
-    public static string NormalizeForMatch(string host) => StripPort(host).ToLowerInvariant();
+    /// <summary>Lower-cases the host and drops the port and a trailing root dot ("example.com." equals "example.com").</summary>
+    public static string NormalizeForMatch(string host) => StripPort(host).TrimEnd('.').ToLowerInvariant();
 }

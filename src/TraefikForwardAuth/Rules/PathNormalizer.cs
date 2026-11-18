@@ -123,12 +123,14 @@ public static class PathNormalizer
 
         foreach (var segment in segments)
         {
-            if (segment.Length == 0 || segment == ".")
+            var name = SegmentName(segment);
+
+            if (segment.Length == 0 || name == ".")
             {
                 continue;
             }
 
-            if (segment == "..")
+            if (name == "..")
             {
                 if (stack.Count > 0)
                 {
@@ -141,7 +143,7 @@ public static class PathNormalizer
             stack.Add(segment);
         }
 
-        var last = segments[^1];
+        var last = SegmentName(segments[^1]);
         var trailingSlash = path[^1] == '/' || last == "." || last == "..";
 
         if (stack.Count == 0)
@@ -152,6 +154,14 @@ public static class PathNormalizer
         var joined = string.Join('/', stack);
 
         return trailingSlash ? "/" + joined + "/" : "/" + joined;
+    }
+
+    // Servlet containers (Tomcat, Jetty) drop ";params" before resolving dot segments, so
+    // "..;x" must collapse like ".." or "/public/..;/admin" would bypass a "/public" prefix rule.
+    private static string SegmentName(string segment)
+    {
+        var semicolon = segment.IndexOf(';');
+        return semicolon >= 0 ? segment[..semicolon] : segment;
     }
 
     private static bool IsControlCharacter(char character) => character < (char)0x20 || character == (char)0x7F;

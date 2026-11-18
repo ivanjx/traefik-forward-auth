@@ -25,7 +25,7 @@ public sealed class AppRuntime : IAsyncDisposable
             HttpClients,
             overrides?.GoogleEndpoints ?? GoogleEndpoints.Default,
             Logger);
-        Policy = new Policy.PolicyManager(Store, ProviderFactory, Logger);
+        Policy = new Policy.PolicyManager(Store, ProviderFactory, Logger, TimeProvider);
         Sessions = new Auth.SessionManager(Store, Logger, TimeProvider);
         Admin = new Policy.AdminService(Store, Policy, Sessions, ProviderFactory, Logger, TimeProvider);
         AdminAuth = new Admin.AdminAuthService(
@@ -67,6 +67,7 @@ public sealed class AppRuntime : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        await Policy.DisposeAsync();
         await Sessions.DisposeAsync();
         await Store.DisposeAsync();
 

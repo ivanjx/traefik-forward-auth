@@ -45,7 +45,7 @@ public sealed class AdminService
         var normalized = NormalizeSettings(settings);
 
         await _store.UpdateSettingsAsync(normalized, adminEmail, cancellationToken);
-        await _policy.RebuildAsync(cancellationToken);
+        await RebuildAfterCommitAsync();
     }
 
     public async Task RotateSecretAsync(string adminEmail, CancellationToken cancellationToken)
@@ -54,8 +54,8 @@ public sealed class AdminService
         System.Security.Cryptography.RandomNumberGenerator.Fill(secret);
 
         await _store.UpdateSigningSecretAsync(secret, adminEmail, cancellationToken);
-        await _sessions.RevokeAllAsync(kind: null, cancellationToken);
-        await _policy.RebuildAsync(cancellationToken);
+        await _sessions.RevokeAllAsync(kind: null, CancellationToken.None);
+        await RebuildAfterCommitAsync();
 
         _logger.Info("Signing secret rotated by admin", ("admin", adminEmail));
     }
@@ -71,13 +71,13 @@ public sealed class AdminService
         }
 
         await _store.UpsertProviderAsync(provider, adminEmail, cancellationToken);
-        await _policy.RebuildAsync(cancellationToken);
+        await RebuildAfterCommitAsync();
     }
 
     public async Task DeleteProviderAsync(string name, string adminEmail, CancellationToken cancellationToken)
     {
         await _store.DeleteProviderAsync(name, adminEmail, cancellationToken);
-        await _policy.RebuildAsync(cancellationToken);
+        await RebuildAfterCommitAsync();
     }
 
     public async Task<ProviderTestResult> TestProviderAsync(ProviderDefinition provider, CancellationToken cancellationToken)
@@ -116,7 +116,7 @@ public sealed class AdminService
         ValidateRule(rule);
 
         var created = await _store.CreateRuleAsync(rule, adminEmail, cancellationToken);
-        await _policy.RebuildAsync(cancellationToken);
+        await RebuildAfterCommitAsync();
 
         return created;
     }
@@ -126,19 +126,19 @@ public sealed class AdminService
         ValidateRule(rule);
 
         await _store.UpdateRuleAsync(rule, adminEmail, cancellationToken);
-        await _policy.RebuildAsync(cancellationToken);
+        await RebuildAfterCommitAsync();
     }
 
     public async Task DeleteRuleAsync(string id, string adminEmail, CancellationToken cancellationToken)
     {
         await _store.DeleteRuleAsync(id, adminEmail, cancellationToken);
-        await _policy.RebuildAsync(cancellationToken);
+        await RebuildAfterCommitAsync();
     }
 
     public async Task MoveRuleAsync(string id, int direction, string adminEmail, CancellationToken cancellationToken)
     {
         await _store.MoveRuleAsync(id, direction, adminEmail, cancellationToken);
-        await _policy.RebuildAsync(cancellationToken);
+        await RebuildAfterCommitAsync();
     }
 
     public async Task SetRuleEnabledAsync(
@@ -148,7 +148,7 @@ public sealed class AdminService
         CancellationToken cancellationToken)
     {
         await _store.SetRuleEnabledAsync(id, enabled, adminEmail, cancellationToken);
-        await _policy.RebuildAsync(cancellationToken);
+        await RebuildAfterCommitAsync();
     }
 
     public async Task AddAccessEntryAsync(
@@ -172,13 +172,13 @@ public sealed class AdminService
         }
 
         await _store.AddAccessEntryAsync(entry, adminEmail, cancellationToken);
-        await _policy.RebuildAsync(cancellationToken);
+        await RebuildAfterCommitAsync();
     }
 
     public async Task DeleteAccessEntryAsync(string id, string adminEmail, CancellationToken cancellationToken)
     {
         await _store.DeleteAccessEntryAsync(id, adminEmail, cancellationToken);
-        await _policy.RebuildAsync(cancellationToken);
+        await RebuildAfterCommitAsync();
     }
 
     public Task<IReadOnlyList<SessionRecord>> ListSessionsAsync(
@@ -225,6 +225,12 @@ public sealed class AdminService
         _store.ListAuditAsync(limit, cancellationToken);
 
     public SimulationResult Simulate(RequestDescriptor request) => _policy.Current.Simulate(request);
+
+    /// <summary>
+    /// Runs after the write has committed, so it must not observe the request's cancellation:
+    /// a client disconnect would otherwise leave the database and the live snapshot out of sync.
+    /// </summary>
+    private Task RebuildAfterCommitAsync() => _policy.RebuildAsync(CancellationToken.None);
 
     private async Task<ProviderDefinition> MergeProviderSecretAsync(
         ProviderDefinition provider,

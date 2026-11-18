@@ -527,6 +527,89 @@ public sealed class StorageTests
         });
     }
 
+    [Fact]
+    public async Task PolicyManagerRetriesFailedProviderAndKeepsItAcrossLaterOutages()
+    {
+        await WithStoreAsync(async (SqliteStore store, TfaLogger logger) =>
+        {
+            await store.InitializeAsync(CancellationToken.None);
+            await store.UpsertProviderAsync(OidcDefinition(), "admin@example.com", CancellationToken.None);
+
+            var issuer = new DiscoveryHandler { Available = false };
+            var timers = new ManualTimeProvider();
+            var factory = new ProviderFactory(new HandlerHttpClientFactory(issuer), GoogleEndpoints.Default, logger);
+            await using var manager = new PolicyManager(store, factory, logger, timers);
+
+            await manager.InitializeAsync(CancellationToken.None);
+            Assert.False(manager.Current.Providers.ContainsKey(ProviderDefinition.Oidc));
+
+            issuer.Available = true;
+            timers.FireLast();
+            await WaitUntilAsync(() => manager.Current.Providers.ContainsKey(ProviderDefinition.Oidc));
+
+            var provider = manager.Current.Providers[ProviderDefinition.Oidc];
+
+            issuer.Available = false;
+            await store.CreateRuleAsync(
+                new RuleDefinition { Id = "", Name = "unrelated", Conditions = [HostCondition("x.example.com")] },
+                "admin@example.com",
+                CancellationToken.None);
+            var rebuilt = await manager.RebuildAsync(CancellationToken.None);
+
+            Assert.Same(provider, rebuilt.Providers[ProviderDefinition.Oidc]);
+            Assert.Single(rebuilt.Rules);
+        });
+    }
+
+    [Fact]
+    public async Task PolicyManagerConcurrentRebuildsNeverRestoreOlderConfiguration()
+    {
+        await WithStoreAsync(async (SqliteStore store, TfaLogger logger) =>
+        {
+            await store.InitializeAsync(CancellationToken.None);
+            await store.UpsertProviderAsync(OidcDefinition(), "admin@example.com", CancellationToken.None);
+
+            var issuer = new DiscoveryHandler { BlockFirstRequest = true };
+            var factory = new ProviderFactory(new HandlerHttpClientFactory(issuer), GoogleEndpoints.Default, logger);
+            await using var manager = new PolicyManager(store, factory, logger, new ManualTimeProvider());
+
+            // The first rebuild loads the configuration without the rule, then stalls in discovery.
+            var stale = manager.RebuildAsync(CancellationToken.None);
+            await issuer.FirstRequestStarted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+            await store.CreateRuleAsync(
+                new RuleDefinition { Id = "", Name = "new", Conditions = [HostCondition("new.example.com")] },
+                "admin@example.com",
+                CancellationToken.None);
+            var fresh = manager.RebuildAsync(CancellationToken.None);
+
+            issuer.ReleaseFirstRequest.SetResult();
+            await Task.WhenAll(stale, fresh).WaitAsync(TimeSpan.FromSeconds(10));
+
+            Assert.Single(manager.Current.Rules);
+            Assert.Same(await fresh, manager.Current);
+        });
+    }
+
+    private static ProviderDefinition OidcDefinition() => new()
+    {
+        Name = ProviderDefinition.Oidc,
+        IssuerUrl = DiscoveryHandler.Issuer,
+        ClientId = "client",
+        ClientSecret = "secret"
+    };
+
+    private static async Task WaitUntilAsync(Func<bool> condition)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+
+        while (!condition())
+        {
+            Assert.True(DateTime.UtcNow < deadline, "Condition was not met in time.");
+            await Task.Delay(10);
+        }
+    }
+
     private static ConditionDefinition HostCondition(string host) => new()
     {
         Field = ConditionField.Host,
@@ -600,5 +683,106 @@ public sealed class StorageTests
     private sealed class StubHttpClientFactory : IHttpClientFactory
     {
         public HttpClient CreateClient(string name) => new();
+    }
+
+    private sealed class HandlerHttpClientFactory(HttpMessageHandler handler) : IHttpClientFactory
+    {
+        public HttpClient CreateClient(string name) => new(handler, disposeHandler: false);
+    }
+
+    private sealed class DiscoveryHandler : HttpMessageHandler
+    {
+        public const string Issuer = "https://issuer.test";
+
+        private int _requests;
+
+        public volatile bool Available = true;
+
+        public bool BlockFirstRequest { get; init; }
+
+        public TaskCompletionSource FirstRequestStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource ReleaseFirstRequest { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            if (BlockFirstRequest && Interlocked.Increment(ref _requests) == 1)
+            {
+                FirstRequestStarted.SetResult();
+                await ReleaseFirstRequest.Task.WaitAsync(cancellationToken);
+            }
+
+            if (!Available)
+            {
+                return new HttpResponseMessage(System.Net.HttpStatusCode.ServiceUnavailable);
+            }
+
+            var body = $$"""
+                {
+                  "issuer": "{{Issuer}}",
+                  "authorization_endpoint": "{{Issuer}}/authorize",
+                  "token_endpoint": "{{Issuer}}/token",
+                  "jwks_uri": "{{Issuer}}/jwks"
+                }
+                """;
+
+            return new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+            {
+                Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json")
+            };
+        }
+    }
+
+    /// <summary>Captures timers so a test can fire them on demand instead of waiting.</summary>
+    private sealed class ManualTimeProvider : TimeProvider
+    {
+        private readonly List<ManualTimer> _timers = [];
+
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+        {
+            var timer = new ManualTimer(callback, state);
+
+            lock (_timers)
+            {
+                _timers.Add(timer);
+            }
+
+            return timer;
+        }
+
+        public void FireLast()
+        {
+            ManualTimer timer;
+
+            lock (_timers)
+            {
+                timer = _timers[^1];
+            }
+
+            timer.Fire();
+        }
+
+        private sealed class ManualTimer(TimerCallback callback, object? state) : ITimer
+        {
+            private bool _disposed;
+
+            public void Fire()
+            {
+                Assert.False(_disposed, "Timer was disposed before firing.");
+                callback(state);
+            }
+
+            public bool Change(TimeSpan dueTime, TimeSpan period) => !_disposed;
+
+            public void Dispose() => _disposed = true;
+
+            public ValueTask DisposeAsync()
+            {
+                _disposed = true;
+                return ValueTask.CompletedTask;
+            }
+        }
     }
 }

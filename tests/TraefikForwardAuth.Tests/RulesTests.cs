@@ -30,6 +30,12 @@ public sealed class RulesTests
     [InlineData("/a?x=%2F", "/a")]
     [InlineData("/a%252Fb", "/a%2Fb")]
     [InlineData("/a%25/b", "/a%/b")]
+    [InlineData("/public/..;/admin", "/admin")]
+    [InlineData("/public/..;jsessionid=x/admin", "/admin")]
+    [InlineData("/public/%2e%2e%3b/admin", "/admin")]
+    [InlineData("/a/.;x/b", "/a/b")]
+    [InlineData("/a/b/..;", "/a/")]
+    [InlineData("/a;x/b", "/a;x/b")]
     public void NormalizePath_ReturnsExpectedPath(string raw, string expected)
     {
         var result = PathNormalizer.Normalize(raw);
@@ -269,6 +275,8 @@ public sealed class RulesTests
     [InlineData("example.com", false)]
     [InlineData("example.com:443", false)]
     [InlineData("badexample.com", false)]
+    [InlineData("a.example.com.", true)]
+    [InlineData("a.example.com.:443", true)]
     public void HostWildcard_MatchesAnyDepthButNotApex(string host, bool expected)
     {
         var compiled = Compile(Rule("wildcard", HostWildcard("*.example.com")));
@@ -287,6 +295,19 @@ public sealed class RulesTests
 
         Assert.False(result.IsDefault);
         Assert.Equal("host", result.RuleId);
+    }
+
+    [Theory]
+    [InlineData("admin.example.com", "admin.example.com.")]
+    [InlineData("admin.example.com.", "admin.example.com")]
+    [InlineData("admin.example.com", "ADMIN.example.com.:8443")]
+    public void HostIs_IgnoresTrailingDot(string ruleHost, string requestHost)
+    {
+        var compiled = Compile(Rule("host", HostIs(ruleHost)));
+
+        var result = Snapshot([compiled]).Match(Request(host: requestHost));
+
+        Assert.False(result.IsDefault);
     }
 
     [Fact]

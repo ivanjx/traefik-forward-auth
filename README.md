@@ -73,6 +73,50 @@ volumes:
   tfa-data:
 ```
 
+The same routers, services and middleware without Docker labels. Add `--providers.file.filename=/etc/traefik/dynamic.yml` to the Traefik command and mount the file there:
+
+```yaml
+# dynamic.yml
+http:
+  routers:
+    tfa-admin:
+      rule: Host(`tfa-admin.example.com`)
+      entryPoints:
+        - websecure
+      service: tfa-admin
+      tls:
+        certResolver: letsencrypt
+
+    whoami:
+      rule: Host(`whoami.example.com`)
+      entryPoints:
+        - websecure
+      service: whoami
+      middlewares:
+        - tfa
+      tls:
+        certResolver: letsencrypt
+
+  services:
+    tfa-admin:
+      loadBalancer:
+        servers:
+          - url: http://traefik-forward-auth:4182
+
+    whoami:
+      loadBalancer:
+        servers:
+          - url: http://whoami:80
+
+  middlewares:
+    tfa:
+      forwardAuth:
+        address: http://traefik-forward-auth:4181
+        authResponseHeaders:
+          - X-Forwarded-User
+          - X-Forwarded-Role
+```
+
 1. Register `https://tfa-admin.example.com/auth/callback` as an authorized redirect URI on the **admin** Google OAuth client.
 2. Open `https://tfa-admin.example.com` and sign in with an address listed in `ADMIN_EMAILS`.
 3. Add a forward-auth provider under **Providers**. Register the forward-auth callback URL, e.g. `https://whoami.example.com/_oauth`, on that provider's OAuth client.

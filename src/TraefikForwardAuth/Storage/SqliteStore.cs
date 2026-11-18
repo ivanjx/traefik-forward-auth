@@ -793,7 +793,7 @@ public sealed class SqliteStore : ISessionRepository, IAsyncDisposable
             await using var command = connection.CreateCommand();
             command.CommandText =
                 """
-                SELECT id, kind, email, provider, created_at, expires_at, last_seen, ip, user_agent, revoked_at
+                SELECT id, kind, email, provider, domain, created_at, expires_at, last_seen, ip, user_agent, revoked_at
                 FROM sessions
                 ORDER BY created_at ASC, id ASC;
                 """;
@@ -820,7 +820,7 @@ public sealed class SqliteStore : ISessionRepository, IAsyncDisposable
             await using var command = connection.CreateCommand();
 
             var sql = new StringBuilder(
-                "SELECT id, kind, email, provider, created_at, expires_at, last_seen, ip, user_agent, revoked_at " +
+                "SELECT id, kind, email, provider, domain, created_at, expires_at, last_seen, ip, user_agent, revoked_at " +
                 "FROM sessions WHERE revoked_at IS NULL");
 
             if (kind is not null)
@@ -863,15 +863,16 @@ public sealed class SqliteStore : ISessionRepository, IAsyncDisposable
                 transaction,
                 """
                 INSERT INTO sessions (
-                    id, kind, email, provider, created_at, expires_at, last_seen, ip, user_agent, revoked_at)
+                    id, kind, email, provider, domain, created_at, expires_at, last_seen, ip, user_agent, revoked_at)
                 VALUES (
-                    $id, $kind, $email, $provider, $created_at, $expires_at, $last_seen, $ip, $user_agent, $revoked_at);
+                    $id, $kind, $email, $provider, $domain, $created_at, $expires_at, $last_seen, $ip, $user_agent, $revoked_at);
                 """,
                 cancellationToken,
                 ("$id", session.Id),
                 ("$kind", KindToString(session.Kind)),
                 ("$email", session.Email),
                 ("$provider", session.Provider),
+                ("$domain", session.Domain),
                 ("$created_at", FormatTimestamp(session.CreatedAt)),
                 ("$expires_at", FormatTimestamp(session.ExpiresAt)),
                 ("$last_seen", FormatTimestamp(session.LastSeenAt)),
@@ -1447,12 +1448,13 @@ public sealed class SqliteStore : ISessionRepository, IAsyncDisposable
                 Kind = ParseSessionKind(reader.GetString(1)),
                 Email = reader.GetString(2),
                 Provider = reader.GetString(3),
-                CreatedAt = ParseTimestamp(reader.GetString(4)),
-                ExpiresAt = ParseTimestamp(reader.GetString(5)),
-                LastSeenAt = ParseTimestamp(reader.GetString(6)),
-                Ip = reader.IsDBNull(7) ? null : reader.GetString(7),
-                UserAgent = reader.IsDBNull(8) ? null : reader.GetString(8),
-                RevokedAt = reader.IsDBNull(9) ? null : ParseTimestamp(reader.GetString(9))
+                Domain = reader.IsDBNull(4) ? null : reader.GetString(4),
+                CreatedAt = ParseTimestamp(reader.GetString(5)),
+                ExpiresAt = ParseTimestamp(reader.GetString(6)),
+                LastSeenAt = ParseTimestamp(reader.GetString(7)),
+                Ip = reader.IsDBNull(8) ? null : reader.GetString(8),
+                UserAgent = reader.IsDBNull(9) ? null : reader.GetString(9),
+                RevokedAt = reader.IsDBNull(10) ? null : ParseTimestamp(reader.GetString(10))
             });
         }
 

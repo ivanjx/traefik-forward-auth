@@ -44,7 +44,7 @@ public sealed class StorageTests
             await using var connection = new SqliteConnection($"Data Source={store.DatabasePath};Pooling=False");
             await connection.OpenAsync();
 
-            Assert.Equal(1L, await ScalarAsync(connection, "PRAGMA user_version;"));
+            Assert.Equal(2L, await ScalarAsync(connection, "PRAGMA user_version;"));
             Assert.Equal("wal", await ScalarTextAsync(connection, "PRAGMA journal_mode;"));
 
             if (!OperatingSystem.IsWindows())
@@ -72,7 +72,7 @@ public sealed class StorageTests
             await connection.OpenAsync();
 
             Assert.Equal(1L, await ScalarAsync(connection, "SELECT COUNT(*) FROM settings;"));
-            Assert.Equal(1L, await ScalarAsync(connection, "PRAGMA user_version;"));
+            Assert.Equal(2L, await ScalarAsync(connection, "PRAGMA user_version;"));
         });
     }
 
@@ -369,6 +369,7 @@ public sealed class StorageTests
                 Kind = SessionKind.ForwardAuth,
                 Email = "alice@example.com",
                 Provider = "google",
+                Domain = "example.com",
                 CreatedAt = now.AddHours(-1),
                 ExpiresAt = now.AddHours(8),
                 LastSeenAt = now.AddMinutes(-5),
@@ -404,6 +405,7 @@ public sealed class StorageTests
             Assert.Equal(alice.LastSeenAt, loadedAlice.LastSeenAt);
             Assert.Equal(alice.Ip, loadedAlice.Ip);
             Assert.Equal(alice.UserAgent, loadedAlice.UserAgent);
+            Assert.Equal(alice.Domain, loadedAlice.Domain);
             Assert.Null(loadedAlice.RevokedAt);
 
             Assert.Equal(2, (await store.ListSessionsAsync(SessionKind.ForwardAuth, null, CancellationToken.None)).Count);

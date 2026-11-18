@@ -34,6 +34,7 @@
         <thead>
         <tr>
             <th>Email</th>
+            <th>Domain</th>
             <th>Provider</th>
             <th>Created</th>
             <th>Expires</th>
@@ -47,13 +48,14 @@
         <tbody>
         @if (Model.Sessions.Count == 0)
         {
-            <tr><td colspan="9" class="empty">No sessions.</td></tr>
+            <tr><td colspan="10" class="empty">No sessions.</td></tr>
         }
         @foreach (var session in Model.Sessions)
         {
             var isCurrent = session.Id == Model.CurrentSessionId;
             <tr>
                 <td class="nowrap">@session.Email</td>
+                <td class="mono">@session.Domain</td>
                 <td>@session.Provider</td>
                 <td class="small">@AdminUi.Time(session.CreatedAt)</td>
                 <td class="small">@AdminUi.Time(session.ExpiresAt)</td>

@@ -344,6 +344,7 @@ public sealed class ForwardAuthTests
             var created = Assert.Single(sessions.List(SessionKind.ForwardAuth));
             Assert.Equal(Email, created.Email);
             Assert.Equal(identity.SessionId, created.Id);
+            Assert.Equal(Host, created.Domain);
         });
     }
 
@@ -551,6 +552,7 @@ public sealed class ForwardAuthTests
             SessionKind.ForwardAuth,
             Email,
             ProviderName,
+            null,
             null,
             null,
             TimeSpan.FromHours(1),

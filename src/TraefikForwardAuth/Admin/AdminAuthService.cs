@@ -185,6 +185,7 @@ public sealed class AdminAuthService
             SessionKind.Admin,
             user.Email,
             ProviderDefinition.Google,
+            CookieService.StripPort(RequestHost(context)),
             ClientIp(context),
             context.Request.Headers.UserAgent.ToString(),
             AdminLifetime,
@@ -268,14 +269,14 @@ public sealed class AdminAuthService
             proto = context.Request.Scheme;
         }
 
+        return $"{proto}://{RequestHost(context)}";
+    }
+
+    private static string RequestHost(HttpContext context)
+    {
         var host = context.Request.Headers["X-Forwarded-Host"].FirstOrDefault();
 
-        if (string.IsNullOrEmpty(host))
-        {
-            host = context.Request.Host.Value ?? "localhost";
-        }
-
-        return $"{proto}://{host}";
+        return string.IsNullOrEmpty(host) ? context.Request.Host.Value ?? "localhost" : host;
     }
 
     private static string? ClientIp(HttpContext context)

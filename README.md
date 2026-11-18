@@ -122,8 +122,8 @@ The UI is server-rendered with RazorSlices and htmx; both assets are embedded in
 - **Providers**: Google, OIDC and generic OAuth. Secrets are write-only; leaving the field blank keeps the stored secret. "Test connection" checks OIDC discovery or HTTP endpoints.
 - **Rules**: ordered first-match rules with an enable toggle and move up/down. Conditions support host, path, method, header and query parameter. The editor shows a plain-language summary and validation errors, and can simulate a request.
 - **Users & access**: global or per-rule email/domain entries with optional roles.
-- **Sessions**: forward-auth sessions; filter by email, revoke one or all sessions for a user. Revoking a session makes the next protected request redirect to login.
-- **Admin sessions**: admin UI sessions with IP, user agent, created and last seen. The current session is marked; revoking it signs you out.
+- **Sessions**: forward-auth sessions with the cookie domain each was issued for; filter by email, revoke one or all sessions for a user. Revoking a session makes the next protected request redirect to login.
+- **Admin sessions**: admin UI sessions with host, IP, user agent, created and last seen. The current session is marked; revoking it signs you out.
 - **Audit log**: read-only record of every admin write.
 
 Every admin form carries an antiforgery token. Admin sessions are stored as `admin` rows so they can be revoked. `ADMIN_EMAILS` is checked on every request, so removing an address and restarting revokes access immediately.

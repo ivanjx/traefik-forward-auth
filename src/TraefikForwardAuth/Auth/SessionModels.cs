@@ -16,6 +16,9 @@ public sealed record SessionRecord
 
     public string Provider { get; init; } = "";
 
+    /// <summary>Domain the session cookie was issued for; null for sessions created before it was recorded.</summary>
+    public string? Domain { get; init; }
+
     public DateTimeOffset CreatedAt { get; init; }
 
     public DateTimeOffset ExpiresAt { get; init; }

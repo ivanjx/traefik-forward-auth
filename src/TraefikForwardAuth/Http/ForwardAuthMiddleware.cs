@@ -240,16 +240,17 @@ public sealed class ForwardAuthMiddleware
             return;
         }
 
+        var domain = CookieService.CookieDomain(settings, forwarded.Host);
         var session = await _sessions.CreateAsync(
             SessionKind.ForwardAuth,
             user.Email,
             providerName,
+            domain,
             SourceIp(context),
             context.Request.Headers.UserAgent.ToString(),
             settings.Lifetime,
             context.RequestAborted);
 
-        var domain = CookieService.CookieDomain(settings, forwarded.Host);
         var cookieValue = CookieService.CreateAuthCookieValue(
             settings.SigningSecret,
             domain,

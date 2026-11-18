@@ -132,7 +132,7 @@ public sealed class RulesTests
     [Fact]
     public void ValidateRule_UnknownProvider_ReturnsError()
     {
-        var rule = Rule("bad provider", HostIs("example.com")) with { Provider = "github" };
+        var rule = Rule("bad provider", HostIs("example.com")) with { Provider = "unknown-provider" };
 
         var errors = ConditionCompiler.ValidateRule(rule);
 

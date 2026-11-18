@@ -167,7 +167,9 @@ public sealed class ForwardAuthTests
             var response = await client.SendAsync(Request("/private", cookies: [("_forward_auth", tampered)]));
 
             Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
-            Assert.Equal("Not authorized\n", await response.Content.ReadAsStringAsync());
+            var body = await response.Content.ReadAsStringAsync();
+            Assert.Contains("Not authorized", body);
+            Assert.Contains("href=\"/_oauth/logout\"", body);
             Assert.Equal("nosniff", response.Headers.GetValues("X-Content-Type-Options").Single());
         });
     }
@@ -239,7 +241,9 @@ public sealed class ForwardAuthTests
             var response = await client.SendAsync(Request("/private", cookies: [("_forward_auth", cookie)]));
 
             Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
-            Assert.Equal("Not authorized\n", await response.Content.ReadAsStringAsync());
+            var body = await response.Content.ReadAsStringAsync();
+            Assert.Contains(Email, body);
+            Assert.Contains("href=\"/_oauth/logout\"", body);
         });
     }
 
@@ -410,7 +414,7 @@ public sealed class ForwardAuthTests
             var response = await client.SendAsync(Request("/_oauth/logout"));
 
             Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
-            Assert.Equal("You have been logged out\n", await response.Content.ReadAsStringAsync());
+            Assert.Contains("You have been logged out", await response.Content.ReadAsStringAsync());
             Assert.NotNull(FindCookieHeader(response, "_forward_auth"));
         });
     }
@@ -430,7 +434,7 @@ public sealed class ForwardAuthTests
             var response = await client.SendAsync(Request("/_oauth/logout"));
 
             Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
-            Assert.Equal("You have been logged out\n", await response.Content.ReadAsStringAsync());
+            Assert.Contains("You have been logged out", await response.Content.ReadAsStringAsync());
         });
     }
 

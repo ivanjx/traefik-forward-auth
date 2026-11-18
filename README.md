@@ -146,6 +146,8 @@ The callback path (`/_oauth` by default) and `/_oauth/logout` are handled before
 
 Access entries use the rule's own entries when it has any; otherwise the global entries apply. No entries means any authenticated user is allowed.
 
+Signed-in users without access, or with an invalid cookie, get a `401` page with a sign-out button. Visiting `https://<host>/_oauth/logout` on any protected host signs out; with Google the next login shows the account chooser.
+
 ## Cookies and sessions
 
 The forward-auth cookie is signed with a secret generated on first boot:

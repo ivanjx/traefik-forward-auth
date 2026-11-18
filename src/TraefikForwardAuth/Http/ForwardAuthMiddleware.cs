@@ -1,8 +1,10 @@
+using RazorSlices;
 using TraefikForwardAuth.Auth;
 using TraefikForwardAuth.Logging;
 using TraefikForwardAuth.Policy;
 using TraefikForwardAuth.Providers;
 using TraefikForwardAuth.Rules;
+using TraefikForwardAuth.Slices;
 
 namespace TraefikForwardAuth.Http;
 
@@ -110,7 +112,13 @@ public sealed class ForwardAuthMiddleware
             }
 
             logger.Warn("Invalid cookie", ("error", error));
-            return GoHttpCompat.WriteErrorAsync(context, StatusCodes.Status401Unauthorized, "Not authorized");
+            return RenderPageAsync(context, StatusCodes.Status401Unauthorized, new AuthPageModel
+            {
+                Title = "Not authorized",
+                Message = "Your sign-in is no longer valid. Sign out to clear it, then sign in again.",
+                ActionHref = LogoutPath(settings.UrlPath),
+                ActionLabel = "Sign out"
+            });
         }
 
         if (!_sessions.TryGetActive(identity.SessionId, now, out var session) ||
@@ -123,7 +131,14 @@ public sealed class ForwardAuthMiddleware
         if (!AccessValidator.IsAllowed(snapshot.Access, result.RuleId, identity.Email, settings.MatchWhitelistOrDomain))
         {
             logger.Warn("Invalid email", ("email", identity.Email));
-            return GoHttpCompat.WriteErrorAsync(context, StatusCodes.Status401Unauthorized, "Not authorized");
+            return RenderPageAsync(context, StatusCodes.Status401Unauthorized, new AuthPageModel
+            {
+                Title = "Not authorized",
+                Message = "This account does not have access to " + forwarded.Host + ".",
+                Email = identity.Email,
+                ActionHref = LogoutPath(settings.UrlPath),
+                ActionLabel = "Sign in with a different account"
+            });
         }
 
         var role = AccessValidator.GetRole(snapshot.Access, result.RuleId, identity.Email);
@@ -296,7 +311,13 @@ public sealed class ForwardAuthMiddleware
             return;
         }
 
-        await GoHttpCompat.WriteErrorAsync(context, StatusCodes.Status401Unauthorized, "You have been logged out");
+        await RenderPageAsync(context, StatusCodes.Status401Unauthorized, new AuthPageModel
+        {
+            Title = "You have been logged out",
+            Message = "You have been signed out of " + forwarded.Host + ".",
+            ActionHref = "/",
+            ActionLabel = "Sign in again"
+        });
     }
 
     private Task RedirectToLoginAsync(
@@ -347,6 +368,17 @@ public sealed class ForwardAuthMiddleware
         }
 
         return string.Concat(forwarded.Proto, "://", forwarded.Host, settings.UrlPath);
+    }
+
+    private static Task RenderPageAsync(HttpContext context, int statusCode, AuthPageModel model)
+    {
+        var slice = AuthPage.Create(model);
+        slice.StatusCode = statusCode;
+        context.Response.ContentType = "text/html; charset=utf-8";
+        context.Response.Headers["X-Content-Type-Options"] = "nosniff";
+        context.Response.Headers.CacheControl = "no-store";
+
+        return ((IResult)slice).ExecuteAsync(context);
     }
 
     private static string LogoutPath(string urlPath)

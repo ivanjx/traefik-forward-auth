@@ -1,0 +1,3 @@
+@inherits RazorSlice<string>
+@* Renders `quoted` segments of a rule description as <code>. Kept on one line so no whitespace leaks around the code elements. *@
+@{ var segments = Model.Split('`'); }@for (var i = 0; i < segments.Length; i++) { if (i % 2 == 0) { @segments[i] } else if (i < segments.Length - 1) { <code>@segments[i]</code> } else { @("`" + segments[i]) } }

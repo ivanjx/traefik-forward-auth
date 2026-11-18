@@ -1,8 +1,13 @@
 @inherits RazorSlice<RuleEditPageModel>
 @implements IUsesLayout<_Layout, LayoutModel>
 
-<h1>@(Model.IsNew ? "New rule" : "Edit rule")</h1>
-<p class="lede">All conditions must match. Values within a condition are alternatives.</p>
+<div class="page-head">
+    <div>
+        <h1>@(Model.IsNew ? "New rule" : "Edit rule")</h1>
+        <p class="lede">All conditions must match. Values within a condition are alternatives.</p>
+    </div>
+    <a class="button secondary" href="/rules">Back to rules</a>
+</div>
 
 @if (Model.Errors.Count > 0)
 {
@@ -20,74 +25,86 @@
      hx-target="#rule-preview"
      hx-swap="innerHTML"
      hx-include="#rule-form">
-<form class="stack" method="post" action="@(Model.IsNew ? "/rules/new" : "/rules/" + Model.Rule.Id)" id="rule-form">
+<form method="post" action="@(Model.IsNew ? "/rules/new" : "/rules/" + Model.Rule.Id)" id="rule-form">
     <input type="hidden" name="__RequestVerificationToken" value="@Model.Layout.AntiforgeryToken">
 
-    <div class="field">
-        <label for="name">Name</label>
-        <input id="name" type="text" name="name" value="@Model.Rule.Name" required>
-    </div>
+    <section class="card">
+        <div class="form-grid">
+            <div class="field span-2">
+                <label for="name">Name</label>
+                <input id="name" type="text" name="name" value="@Model.Rule.Name" required>
+            </div>
 
-    <div class="checkline">
-        <input id="enabled" type="checkbox" name="enabled" value="on" checked="@Model.Rule.Enabled">
-        <label for="enabled">Enabled</label>
-    </div>
+            <div class="field">
+                <label for="action">Action</label>
+                <select id="action" name="action">
+                    <option value="auth" selected="@(Model.Rule.Action == RuleAction.Auth)">Require login</option>
+                    <option value="allow" selected="@(Model.Rule.Action == RuleAction.Allow)">Allow without login</option>
+                </select>
+            </div>
 
-    <div class="field">
-        <label for="action">Action</label>
-        <select id="action" name="action">
-            <option value="auth" selected="@(Model.Rule.Action == RuleAction.Auth)">Require login</option>
-            <option value="allow" selected="@(Model.Rule.Action == RuleAction.Allow)">Allow without login</option>
-        </select>
-    </div>
+            <div class="field">
+                <label for="provider">Provider</label>
+                <select id="provider" name="provider">
+                    <option value="">Use default</option>
+                    @foreach (var provider in Model.ProviderNames)
+                    {
+                        <option value="@provider" selected="@(provider == Model.Rule.Provider)">@provider</option>
+                    }
+                </select>
+            </div>
 
-    <div class="field">
-        <label for="provider">Provider</label>
-        <select id="provider" name="provider">
-            <option value="">Use default</option>
-            @foreach (var provider in Model.ProviderNames)
-            {
-                <option value="@provider" selected="@(provider == Model.Rule.Provider)">@provider</option>
-            }
-        </select>
-    </div>
+            <div class="span-2">
+                <label class="checkline">
+                    <input id="enabled" type="checkbox" name="enabled" value="on" checked="@Model.Rule.Enabled">
+                    Enabled
+                </label>
+            </div>
+        </div>
+    </section>
 
-    <div>
-        <div class="button-row" style="justify-content: space-between;">
-            <label style="margin: 0;">Conditions</label>
+    <section class="card">
+        <div class="card-head section-head">
+            <h2>Conditions</h2>
             <button type="button" class="small secondary"
                     hx-get="/rules/conditions/editor?index=@Model.NextConditionIndex"
                     hx-target="#conditions"
-                    hx-swap="beforeend">Add condition</button>
+                    hx-swap="beforeend">+ Add condition</button>
         </div>
+
         <div id="conditions">
+            <div class="conditions-empty">No conditions yet. A rule needs at least one.</div>
             @foreach (var condition in Model.Conditions)
             {
                 @(await RenderPartialAsync(ConditionRow.Create(condition)))
             }
         </div>
-    </div>
 
-    <div id="rule-preview" class="card">
-        @(await RenderPartialAsync(RulePreview.Create(new RulePreviewModel { Summary = Model.Summary, Errors = Model.Errors })))
-    </div>
+        <div id="rule-preview" class="preview sim-result">
+            @(await RenderPartialAsync(RulePreview.Create(new RulePreviewModel { Summary = Model.Summary, Errors = Model.Errors })))
+        </div>
+    </section>
 
-    <div class="button-row">
+    <div class="form-actions">
         <button type="submit">Save rule</button>
         <a class="button secondary" href="/rules">Cancel</a>
     </div>
 </form>
 </div>
 
-<h2>Simulate a request</h2>
-<div class="card">
+<section class="card spaced">
+    <div class="card-head">
+        <h2>Simulate a request</h2>
+        <p>Evaluates the saved rules; save your changes first to include them.</p>
+    </div>
+
     <form class="stack" action="/simulate" method="post"
           hx-post="/simulate"
           hx-target="#simulate-result"
           hx-swap="innerHTML">
         <input type="hidden" name="__RequestVerificationToken" value="@Model.Layout.AntiforgeryToken">
 
-        <div class="condition-grid">
+        <div class="sim-grid">
             <div class="field">
                 <label for="sim-method">Method</label>
                 <select id="sim-method" name="method">
@@ -107,47 +124,58 @@
             </div>
         </div>
 
-        <div class="field">
-            <label for="sim-headers">Headers</label>
-            <textarea id="sim-headers" name="headers" placeholder="X-Api-Client: web&#10;Accept: application/json"></textarea>
-            <span class="hint">One <code>Name: value</code> pair per line.</span>
+        <div class="form-grid">
+            <div class="field">
+                <label for="sim-headers">Headers</label>
+                <textarea id="sim-headers" name="headers" placeholder="X-Api-Client: web&#10;Accept: application/json"></textarea>
+                <span class="hint">One <code>Name: value</code> pair per line.</span>
+            </div>
+
+            <div class="field">
+                <label for="sim-query">Query</label>
+                <textarea id="sim-query" name="query" placeholder="a=b&amp;c=d"></textarea>
+                <span class="hint"><code>a=b&amp;c=d</code>, or one <code>name=value</code> pair per line.</span>
+            </div>
         </div>
 
-        <div class="field">
-            <label for="sim-query">Query</label>
-            <textarea id="sim-query" name="query" placeholder="a=b&amp;c=d, or one name=value pair per line"></textarea>
-        </div>
-
-        <div class="button-row">
+        <div class="form-actions">
             <button type="submit" class="secondary">Simulate</button>
         </div>
     </form>
     <div id="simulate-result"></div>
-</div>
+</section>
 
-@if (!Model.IsNew && Model.AccessEntries.Count > 0)
+@if (!Model.IsNew)
 {
-    <h2>Access entries for this rule</h2>
-    <table>
-        <thead>
-        <tr><th>Kind</th><th>Value</th><th>Role</th></tr>
-        </thead>
-        <tbody>
-        @foreach (var entry in Model.AccessEntries)
-        {
-            <tr>
-                <td>@entry.Kind</td>
-                <td>@entry.Value</td>
-                <td>@entry.Role</td>
-            </tr>
-        }
-        </tbody>
-    </table>
-    <p><a href="/access?rule=@Model.Rule.Id">Manage access for this rule</a></p>
-}
-else if (!Model.IsNew)
-{
-    <p class="muted">No access entries are scoped to this rule; global entries apply. <a href="/access?rule=@Model.Rule.Id">Add access entries for this rule</a>.</p>
+    <div class="section-head">
+        <h2>Access entries for this rule</h2>
+        <a class="button small secondary" href="/access?rule=@Model.Rule.Id">Manage access</a>
+    </div>
+
+    @if (Model.AccessEntries.Count > 0)
+    {
+        <div class="table-wrap">
+            <table>
+                <thead>
+                <tr><th>Kind</th><th>Value</th><th>Role</th></tr>
+                </thead>
+                <tbody>
+                @foreach (var entry in Model.AccessEntries)
+                {
+                    <tr>
+                        <td>@entry.Kind</td>
+                        <td>@entry.Value</td>
+                        <td>@entry.Role</td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        </div>
+    }
+    else
+    {
+        <p class="muted">No access entries are scoped to this rule; global entries apply.</p>
+    }
 }
 
 @functions {

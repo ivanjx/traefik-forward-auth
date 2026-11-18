@@ -10,4 +10,4 @@
     </ul>
 }
 
-<p><strong>@Model.Summary</strong></p>
+<p>@(await RenderPartialAsync(CodeText.Create(Model.Summary)))</p>

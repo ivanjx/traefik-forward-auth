@@ -1,85 +1,122 @@
 @inherits RazorSlice<SettingsPageModel>
 @implements IUsesLayout<_Layout, LayoutModel>
 
-<h1>Settings</h1>
-<p class="lede">Forward-auth cookie, callback and default policy settings. The signing secret is never shown.</p>
+<div class="page-head">
+    <div>
+        <h1>Settings</h1>
+        <p class="lede">Forward-auth cookie, callback and default policy settings. The signing secret is never shown.</p>
+    </div>
+</div>
 
-<form class="stack" method="post" action="/settings">
+<form method="post" action="/settings">
     <input type="hidden" name="__RequestVerificationToken" value="@Model.Layout.AntiforgeryToken">
 
-    <div class="field">
-        <label for="cookie_name">Auth cookie name</label>
-        <input id="cookie_name" type="text" name="cookie_name" value="@Model.Settings.CookieName" required>
-    </div>
+    <section class="card">
+        <div class="card-head">
+            <h2>Cookies</h2>
+            <p>Names and scope of the cookies set on proxied hosts.</p>
+        </div>
 
-    <div class="field">
-        <label for="csrf_cookie_name">CSRF cookie name</label>
-        <input id="csrf_cookie_name" type="text" name="csrf_cookie_name" value="@Model.Settings.CsrfCookieName" required>
-    </div>
+        <div class="form-grid">
+            <div class="field">
+                <label for="cookie_name">Auth cookie name</label>
+                <input id="cookie_name" type="text" name="cookie_name" value="@Model.Settings.CookieName" required>
+            </div>
 
-    <div class="field">
-        <label for="cookie_domains">Cookie domains</label>
-        <textarea id="cookie_domains" name="cookie_domains" placeholder="example.com">@string.Join('\n', Model.Settings.CookieDomains)</textarea>
-        <span class="hint">One domain per line, or comma separated. Leave empty to use host-only cookies.</span>
-    </div>
+            <div class="field">
+                <label for="csrf_cookie_name">CSRF cookie name</label>
+                <input id="csrf_cookie_name" type="text" name="csrf_cookie_name" value="@Model.Settings.CsrfCookieName" required>
+            </div>
 
-    <div class="field">
-        <label for="auth_host">Auth host</label>
-        <input id="auth_host" type="text" name="auth_host" value="@Model.Settings.AuthHost">
-        <span class="hint">Sent to Traefik as X-Forwarded-Host when redirecting to login.</span>
-    </div>
+            <div class="field span-2">
+                <label for="cookie_domains">Cookie domains</label>
+                <textarea id="cookie_domains" name="cookie_domains" placeholder="example.com">@string.Join('\n', Model.Settings.CookieDomains)</textarea>
+                <span class="hint">One domain per line, or comma separated. Leave empty to use host-only cookies.</span>
+            </div>
 
-    <div class="checkline">
-        <input id="insecure_cookie" type="checkbox" name="insecure_cookie" value="on" checked="@Model.Settings.InsecureCookie">
-        <label for="insecure_cookie">Allow cookies over plain HTTP (development only)</label>
-    </div>
+            <div class="span-2">
+                <label class="checkline">
+                    <input id="insecure_cookie" type="checkbox" name="insecure_cookie" value="on" checked="@Model.Settings.InsecureCookie">
+                    Allow cookies over plain HTTP (development only)
+                </label>
+            </div>
+        </div>
+    </section>
 
-    <div class="field">
-        <label for="url_path">Callback path</label>
-        <input id="url_path" type="text" name="url_path" value="@Model.Settings.UrlPath">
-    </div>
+    <section class="card">
+        <div class="card-head">
+            <h2>Login &amp; sessions</h2>
+            <p>Where the login flow runs and how long a session lasts.</p>
+        </div>
 
-    <div class="field">
-        <label for="lifetime_seconds">Session lifetime (seconds)</label>
-        <input id="lifetime_seconds" type="number" min="1" max="31536000" name="lifetime_seconds" value="@((long)Model.Settings.Lifetime.TotalSeconds)">
-    </div>
+        <div class="form-grid">
+            <div class="field">
+                <label for="auth_host">Auth host</label>
+                <input id="auth_host" type="text" name="auth_host" value="@Model.Settings.AuthHost" placeholder="auth.example.com">
+                <span class="hint">Sent to Traefik as X-Forwarded-Host when redirecting to login.</span>
+            </div>
 
-    <div class="field">
-        <label for="logout_redirect">Logout redirect URL</label>
-        <input id="logout_redirect" type="url" name="logout_redirect" value="@Model.Settings.LogoutRedirect" placeholder="https://example.com/">
-        <span class="hint">Optional absolute URL to redirect to after logout.</span>
-    </div>
+            <div class="field">
+                <label for="url_path">Callback path</label>
+                <input id="url_path" type="text" name="url_path" value="@Model.Settings.UrlPath">
+            </div>
 
-    <div class="field">
-        <label for="default_action">Default action when no rule matches</label>
-        <select id="default_action" name="default_action">
-            <option value="auth" selected="@(Model.Settings.DefaultAction == RuleAction.Auth)">Require login</option>
-            <option value="allow" selected="@(Model.Settings.DefaultAction == RuleAction.Allow)">Allow without login</option>
-        </select>
-    </div>
+            <div class="field">
+                <label for="lifetime_seconds">Session lifetime (seconds)</label>
+                <input id="lifetime_seconds" type="number" min="1" max="31536000" name="lifetime_seconds" value="@((long)Model.Settings.Lifetime.TotalSeconds)">
+            </div>
 
-    <div class="field">
-        <label for="default_provider">Default provider</label>
-        <select id="default_provider" name="default_provider">
-            <option value="google" selected="@(Model.Settings.DefaultProvider == ProviderDefinition.Google)">Google</option>
-            <option value="oidc" selected="@(Model.Settings.DefaultProvider == ProviderDefinition.Oidc)">OpenID Connect</option>
-            <option value="generic-oauth" selected="@(Model.Settings.DefaultProvider == ProviderDefinition.GenericOAuth)">Generic OAuth2</option>
-        </select>
-    </div>
+            <div class="field">
+                <label for="logout_redirect">Logout redirect URL</label>
+                <input id="logout_redirect" type="url" name="logout_redirect" value="@Model.Settings.LogoutRedirect" placeholder="https://example.com/">
+                <span class="hint">Optional absolute URL to redirect to after logout.</span>
+            </div>
+        </div>
+    </section>
 
-    <div class="checkline">
-        <input id="match_whitelist_or_domain" type="checkbox" name="match_whitelist_or_domain" value="on" checked="@Model.Settings.MatchWhitelistOrDomain">
-        <label for="match_whitelist_or_domain">Allow a user whose email domain matches an access domain entry, even when email entries exist</label>
-    </div>
+    <section class="card">
+        <div class="card-head">
+            <h2>Default policy</h2>
+            <p>Applied when no rule matches a request.</p>
+        </div>
 
-    <div class="button-row">
+        <div class="form-grid">
+            <div class="field">
+                <label for="default_action">Default action</label>
+                <select id="default_action" name="default_action">
+                    <option value="auth" selected="@(Model.Settings.DefaultAction == RuleAction.Auth)">Require login</option>
+                    <option value="allow" selected="@(Model.Settings.DefaultAction == RuleAction.Allow)">Allow without login</option>
+                </select>
+            </div>
+
+            <div class="field">
+                <label for="default_provider">Default provider</label>
+                <select id="default_provider" name="default_provider">
+                    <option value="google" selected="@(Model.Settings.DefaultProvider == ProviderDefinition.Google)">Google</option>
+                    <option value="oidc" selected="@(Model.Settings.DefaultProvider == ProviderDefinition.Oidc)">OpenID Connect</option>
+                    <option value="generic-oauth" selected="@(Model.Settings.DefaultProvider == ProviderDefinition.GenericOAuth)">Generic OAuth2</option>
+                </select>
+            </div>
+
+            <div class="span-2">
+                <label class="checkline">
+                    <input id="match_whitelist_or_domain" type="checkbox" name="match_whitelist_or_domain" value="on" checked="@Model.Settings.MatchWhitelistOrDomain">
+                    Allow a user whose email domain matches an access domain entry, even when email entries exist
+                </label>
+            </div>
+        </div>
+    </section>
+
+    <div class="form-actions">
         <button type="submit">Save settings</button>
     </div>
 </form>
 
-<h2>Signing secret</h2>
-<div class="card">
-    <p class="muted">Rotating the signing secret signs out every forward-auth and admin session.</p>
+<div class="card danger-zone">
+    <div>
+        <h2>Rotate signing secret</h2>
+        <p>Signs out every forward-auth and admin session immediately.</p>
+    </div>
     <form method="post" action="/settings/rotate-secret" onsubmit="return confirm('Rotate the signing secret and sign out all sessions?')">
         <input type="hidden" name="__RequestVerificationToken" value="@Model.Layout.AntiforgeryToken">
         <button class="danger" type="submit">Rotate signing secret</button>

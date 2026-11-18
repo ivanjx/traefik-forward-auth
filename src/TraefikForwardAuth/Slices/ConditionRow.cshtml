@@ -31,28 +31,20 @@
             </select>
         </div>
 
-        <div class="field">
-            <label>Name</label>
-            @if (Model.Field == ConditionField.Header)
-            {
-                <input type="text" name="Conditions[@Model.Index].Name" value="@Model.Name" placeholder="X-Api-Client">
-            }
-            else if (Model.Field == ConditionField.Query)
-            {
-                <input type="text" name="Conditions[@Model.Index].Name" value="@Model.Name" placeholder="token">
-            }
-            else
-            {
-                <input type="text" name="Conditions[@Model.Index].Name" value="" disabled>
-            }
-        </div>
+        @if (Model.Field == ConditionField.Header || Model.Field == ConditionField.Query)
+        {
+            <div class="field">
+                <label>@(Model.Field == ConditionField.Header ? "Header name" : "Parameter name")</label>
+                <input type="text" name="Conditions[@Model.Index].Name" value="@Model.Name" placeholder="@(Model.Field == ConditionField.Header ? "X-Api-Client" : "token")">
+            </div>
+        }
     </div>
 
-    <div class="field">
-        <label>Values</label>
-        @if (Model.Field == ConditionField.Method)
-        {
-            <div class="button-row">
+    @if (Model.Field == ConditionField.Method)
+    {
+        <div class="field">
+            <label>Methods</label>
+            <div class="method-list">
                 @foreach (var method in AdminUi.HttpMethods)
                 {
                     <label class="checkline">
@@ -61,23 +53,22 @@
                     </label>
                 }
             </div>
-        }
-        else if (Model.Operator == ConditionOperator.Exists)
-        {
-            <span class="hint">No values needed for the “exists” operator.</span>
-        }
-        else
-        {
+        </div>
+    }
+    else if (Model.Operator != ConditionOperator.Exists)
+    {
+        <div class="field">
+            <label>Values</label>
             <textarea name="Conditions[@Model.Index].Values" placeholder="@(Model.Field == ConditionField.Path ? "/api/\n/static/**" : Model.Field == ConditionField.Host ? "app.example.com\n*.example.com" : "one value per line")">@Model.ValuesText</textarea>
             <span class="hint">One value per line. Values within a condition are alternatives.</span>
-        }
-    </div>
+        </div>
+    }
 
     <div class="condition-foot">
         <label class="checkline">
             <input type="checkbox" name="Conditions[@Model.Index].Negated" value="on" checked="@Model.Negated">
             Negate this condition
         </label>
-        <button type="button" class="small secondary" hx-on:click="this.closest('.condition').remove()">Remove</button>
+        <button type="button" class="small ghost" hx-on:click="this.closest('.condition').remove()">Remove</button>
     </div>
 </div>

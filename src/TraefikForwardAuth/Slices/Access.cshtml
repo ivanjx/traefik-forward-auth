@@ -1,73 +1,60 @@
 @inherits RazorSlice<AccessPageModel>
 @implements IUsesLayout<_Layout, LayoutModel>
 
-<h1>Users &amp; access</h1>
-<p class="lede">Global entries apply to every rule. Entries scoped to a rule replace the global entries for that rule.</p>
+<div class="page-head">
+    <div>
+        <h1>Users &amp; access</h1>
+        <p class="lede">Global entries apply to every rule. Entries scoped to a rule replace the global entries for that rule.</p>
+    </div>
+</div>
 
-<h2>Add an access entry</h2>
-<form class="stack card" method="post" action="/access">
+<form class="card" method="post" action="/access">
     <input type="hidden" name="__RequestVerificationToken" value="@Model.Layout.AntiforgeryToken">
 
-    <div class="field">
-        <label for="scope">Scope</label>
-        <select id="scope" name="scope">
-            <option value="global" selected="@(string.IsNullOrEmpty(Model.SelectedRuleId))">Global</option>
-            @foreach (var rule in Model.Rules)
-            {
-                <option value="@rule.Id" selected="@(rule.Id == Model.SelectedRuleId)">Rule: @rule.Name</option>
-            }
-        </select>
+    <div class="card-head">
+        <h2>Add an access entry</h2>
     </div>
 
-    <div class="field">
-        <label for="kind">Kind</label>
-        <select id="kind" name="kind">
-            <option value="email">Email address</option>
-            <option value="domain">Email domain</option>
-        </select>
+    <div class="form-grid cols-4">
+        <div class="field">
+            <label for="scope">Scope</label>
+            <select id="scope" name="scope">
+                <option value="global" selected="@(string.IsNullOrEmpty(Model.SelectedRuleId))">Global</option>
+                @foreach (var rule in Model.Rules)
+                {
+                    <option value="@rule.Id" selected="@(rule.Id == Model.SelectedRuleId)">Rule: @rule.Name</option>
+                }
+            </select>
+        </div>
+
+        <div class="field">
+            <label for="kind">Kind</label>
+            <select id="kind" name="kind">
+                <option value="email">Email address</option>
+                <option value="domain">Email domain</option>
+            </select>
+        </div>
+
+        <div class="field">
+            <label for="value">Value</label>
+            <input id="value" type="text" name="value" placeholder="user@example.com" required>
+            <span class="hint">An email address, or a domain such as example.com.</span>
+        </div>
+
+        <div class="field">
+            <label for="role">Role</label>
+            <input id="role" type="text" name="role" placeholder="Optional">
+            <span class="hint">Sent as X-Forwarded-Role.</span>
+        </div>
     </div>
 
-    <div class="field">
-        <label for="value">Value</label>
-        <input id="value" type="text" name="value" placeholder="user@example.com or example.com" required>
-    </div>
-
-    <div class="field">
-        <label for="role">Role</label>
-        <input id="role" type="text" name="role" placeholder="Optional, sent as X-Forwarded-Role">
-    </div>
-
-    <div class="button-row">
+    <div class="form-actions spaced">
         <button type="submit">Add entry</button>
     </div>
 </form>
 
 <h2>Global entries</h2>
-<table>
-    <thead>
-    <tr><th>Kind</th><th>Value</th><th>Role</th><th class="actions"></th></tr>
-    </thead>
-    <tbody>
-    @if (Model.GlobalEntries.Count == 0)
-    {
-        <tr><td colspan="4" class="muted">No global entries. Everyone who can log in is allowed.</td></tr>
-    }
-    @foreach (var entry in Model.GlobalEntries)
-    {
-        <tr>
-            <td>@entry.Kind</td>
-            <td>@entry.Value</td>
-            <td>@entry.Role</td>
-            <td class="actions">
-                <form method="post" action="/access/@entry.Id/delete">
-                    <input type="hidden" name="__RequestVerificationToken" value="@Model.Layout.AntiforgeryToken">
-                    <button type="submit" class="small danger">Delete</button>
-                </form>
-            </td>
-        </tr>
-    }
-    </tbody>
-</table>
+@(await RenderPartialAsync(AccessTable.Create(new AccessTableModel { Entries = Model.GlobalEntries, AntiforgeryToken = Model.Layout.AntiforgeryToken, EmptyText = "No global entries. Everyone who can log in is allowed." })))
 
 <h2>Per-rule entries</h2>
 @if (Model.RuleGroups.Count == 0)
@@ -76,28 +63,8 @@
 }
 @foreach (var group in Model.RuleGroups)
 {
-    <h3><a href="/rules/@group.RuleId">@group.RuleName</a></h3>
-    <table>
-        <thead>
-        <tr><th>Kind</th><th>Value</th><th>Role</th><th class="actions"></th></tr>
-        </thead>
-        <tbody>
-        @foreach (var entry in group.Entries)
-        {
-            <tr>
-                <td>@entry.Kind</td>
-                <td>@entry.Value</td>
-                <td>@entry.Role</td>
-                <td class="actions">
-                    <form method="post" action="/access/@entry.Id/delete">
-                        <input type="hidden" name="__RequestVerificationToken" value="@Model.Layout.AntiforgeryToken">
-                        <button type="submit" class="small danger">Delete</button>
-                    </form>
-                </td>
-            </tr>
-        }
-        </tbody>
-    </table>
+    <h3>Rule: <a href="/rules/@group.RuleId">@group.RuleName</a></h3>
+    @(await RenderPartialAsync(AccessTable.Create(new AccessTableModel { Entries = group.Entries, AntiforgeryToken = Model.Layout.AntiforgeryToken, EmptyText = "No entries." })))
 }
 
 @functions {

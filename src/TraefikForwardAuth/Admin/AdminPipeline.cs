@@ -703,7 +703,7 @@ internal sealed class AdminPipeline
             rows.Add(new RuleRow(
                 rule.Id,
                 rule.Name,
-                rule.Action == RuleAction.Allow ? "Allow without login" : "Require login",
+                rule.Action,
                 rule.Provider ?? "default",
                 rule.Enabled,
                 summary,

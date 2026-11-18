@@ -1,69 +1,83 @@
 @inherits RazorSlice<SessionsPageModel>
 @implements IUsesLayout<_Layout, LayoutModel>
 
-<h1>@(Model.AdminSessions ? "Admin sessions" : "Sessions")</h1>
-<p class="lede">@(Model.AdminSessions ? "Sessions that can sign in to this admin interface." : "Forward-auth sessions signed in through the proxy.")</p>
+@{
+    var basePath = Model.AdminSessions ? "/admin-sessions" : "/sessions";
+}
 
-<form class="inline" method="get" action="@(Model.AdminSessions ? "/admin-sessions" : "/sessions")">
-    <input type="text" name="email" value="@Model.EmailFilter" placeholder="Filter by email">
-    <button type="submit" class="secondary">Filter</button>
-    @if (!string.IsNullOrEmpty(Model.EmailFilter))
-    {
-        <a href="@(Model.AdminSessions ? "/admin-sessions" : "/sessions")">Clear</a>
-    }
-</form>
+<div class="page-head">
+    <div>
+        <h1>@(Model.AdminSessions ? "Admin sessions" : "Sessions")</h1>
+        <p class="lede">@(Model.AdminSessions ? "Sessions that can sign in to this admin interface." : "Forward-auth sessions signed in through the proxy.")</p>
+    </div>
+</div>
 
-<form class="inline" method="post" action="@(Model.AdminSessions ? "/admin-sessions/revoke-email" : "/sessions/revoke-email")" style="margin-left: 12px;">
-    <input type="hidden" name="__RequestVerificationToken" value="@Model.Layout.AntiforgeryToken">
-    <input type="email" name="email" placeholder="Revoke all sessions for email" required>
-    <button type="submit" class="secondary">Revoke all</button>
-</form>
+<div class="toolbar">
+    <form method="get" action="@basePath">
+        <input type="text" name="email" value="@Model.EmailFilter" placeholder="Filter by email">
+        <button type="submit" class="secondary">Filter</button>
+        @if (!string.IsNullOrEmpty(Model.EmailFilter))
+        {
+            <a class="button ghost" href="@basePath">Clear</a>
+        }
+    </form>
 
-<table style="margin-top: 18px;">
-    <thead>
-    <tr>
-        <th>Email</th>
-        <th>Provider</th>
-        <th>Created</th>
-        <th>Expires</th>
-        <th>Last seen</th>
-        <th>IP</th>
-        <th>User agent</th>
-        <th>Session</th>
-        <th class="actions"></th>
-    </tr>
-    </thead>
-    <tbody>
-    @if (Model.Sessions.Count == 0)
-    {
-        <tr><td colspan="9" class="muted">No sessions.</td></tr>
-    }
-    @foreach (var session in Model.Sessions)
-    {
-        var isCurrent = session.Id == Model.CurrentSessionId;
+    <form method="post" action="@(basePath + "/revoke-email")" onsubmit="return confirm('Revoke every session for this email?')">
+        <input type="hidden" name="__RequestVerificationToken" value="@Model.Layout.AntiforgeryToken">
+        <input type="email" name="email" placeholder="user@example.com" required>
+        <button type="submit" class="danger">Revoke all for email</button>
+    </form>
+</div>
+
+<div class="table-wrap">
+    <table>
+        <thead>
         <tr>
-            <td>@session.Email</td>
-            <td>@session.Provider</td>
-            <td class="nowrap">@AdminUi.Time(session.CreatedAt)</td>
-            <td class="nowrap">@AdminUi.Time(session.ExpiresAt)</td>
-            <td class="nowrap">@AdminUi.Time(session.LastSeenAt)</td>
-            <td class="mono">@session.Ip</td>
-            <td class="small">@session.UserAgent</td>
-            <td class="mono" title="@session.Id">@session.Id.Substring(0, Math.Min(8, session.Id.Length))</td>
-            <td class="actions">
-                @if (isCurrent)
-                {
-                    <span class="pill ok">Current</span>
-                }
-                <form method="post" action="@(Model.AdminSessions ? "/admin-sessions/" + session.Id + "/revoke" : "/sessions/" + session.Id + "/revoke")">
-                    <input type="hidden" name="__RequestVerificationToken" value="@Model.Layout.AntiforgeryToken">
-                    <button type="submit" class="small danger">Revoke</button>
-                </form>
-            </td>
+            <th>Email</th>
+            <th>Provider</th>
+            <th>Created</th>
+            <th>Expires</th>
+            <th>Last seen</th>
+            <th>IP</th>
+            <th>User agent</th>
+            <th>Session</th>
+            <th class="actions"></th>
         </tr>
-    }
-    </tbody>
-</table>
+        </thead>
+        <tbody>
+        @if (Model.Sessions.Count == 0)
+        {
+            <tr><td colspan="9" class="empty">No sessions.</td></tr>
+        }
+        @foreach (var session in Model.Sessions)
+        {
+            var isCurrent = session.Id == Model.CurrentSessionId;
+            <tr>
+                <td class="nowrap">@session.Email</td>
+                <td>@session.Provider</td>
+                <td class="small">@AdminUi.Time(session.CreatedAt)</td>
+                <td class="small">@AdminUi.Time(session.ExpiresAt)</td>
+                <td class="small">@AdminUi.Time(session.LastSeenAt)</td>
+                <td class="mono">@session.Ip</td>
+                <td class="small muted user-agent" title="@session.UserAgent">@session.UserAgent</td>
+                <td class="mono" title="@session.Id">@session.Id.Substring(0, Math.Min(8, session.Id.Length))</td>
+                <td class="actions">
+                    <div class="row-actions">
+                        @if (isCurrent)
+                        {
+                            <span class="pill ok">Current</span>
+                        }
+                        <form method="post" action="@(basePath + "/" + session.Id + "/revoke")">
+                            <input type="hidden" name="__RequestVerificationToken" value="@Model.Layout.AntiforgeryToken">
+                            <button type="submit" class="small danger">Revoke</button>
+                        </form>
+                    </div>
+                </td>
+            </tr>
+        }
+        </tbody>
+    </table>
+</div>
 
 @functions {
     public LayoutModel LayoutModel => Model.Layout;

@@ -2,62 +2,64 @@
 
 @if (!string.IsNullOrEmpty(Model.Error) || Model.Request is null || Model.Result is null)
 {
-    <div class="banner banner-error">@(Model.Error ?? "The request could not be evaluated.")</div>
+    <div class="banner banner-error sim-result">@(Model.Error ?? "The request could not be evaluated.")</div>
 }
 else
 {
-    <div class="card">
-        <p class="muted small">
+    <div class="sim-result">
+        <div class="preview sim-request">
             <span class="mono">@Model.Request.Method @Model.Request.Host@Model.Request.Path</span>
             → @(Model.Result.Result.IsDefault ? "default action" : "rule: " + Model.Result.Result.RuleLabel)
-            → <strong>@(Model.Result.Result.Action == RuleAction.Allow ? "Allow without login" : "Require login")</strong>
-            (@Model.Result.Result.ProviderName)
-        </p>
+            → <strong>@AdminUi.ActionLabel(Model.Result.Result.Action)</strong>
+            <span class="muted">(@Model.Result.Result.ProviderName)</span>
+        </div>
 
-        <table>
-            <thead>
-            <tr>
-                <th>Rule</th>
-                <th>Matched</th>
-                <th>Conditions</th>
-            </tr>
-            </thead>
-            <tbody>
-            @foreach (var simulation in Model.Result.Rules)
-            {
+        <div class="table-wrap">
+            <table>
+                <thead>
                 <tr>
-                    <td>@simulation.Rule.Definition.Name</td>
-                    <td>
-                        @if (simulation.Matched)
-                        {
-                            <span class="pill ok">match</span>
-                        }
-                        else
-                        {
-                            <span class="pill">no match</span>
-                        }
-                    </td>
-                    <td>
-                        <ul style="margin: 0; padding-left: 18px;">
-                            @foreach (var condition in simulation.Conditions)
-                            {
-                                <li>
-                                    @if (condition.Matched)
-                                    {
-                                        <span class="pill ok">pass</span>
-                                    }
-                                    else
-                                    {
-                                        <span class="pill bad">fail</span>
-                                    }
-                                    @condition.Condition.Describe()
-                                </li>
-                            }
-                        </ul>
-                    </td>
+                    <th>Rule</th>
+                    <th>Result</th>
+                    <th>Conditions</th>
                 </tr>
-            }
-            </tbody>
-        </table>
+                </thead>
+                <tbody>
+                @foreach (var simulation in Model.Result.Rules)
+                {
+                    <tr>
+                        <td class="top nowrap"><strong>@simulation.Rule.Definition.Name</strong></td>
+                        <td class="top">
+                            @if (simulation.Matched)
+                            {
+                                <span class="pill ok">match</span>
+                            }
+                            else
+                            {
+                                <span class="pill">no match</span>
+                            }
+                        </td>
+                        <td>
+                            <ul class="check-list">
+                                @foreach (var condition in simulation.Conditions)
+                                {
+                                    <li>
+                                        @if (condition.Matched)
+                                        {
+                                            <span class="pill ok">pass</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="pill bad">fail</span>
+                                        }
+                                        <span>@(await RenderPartialAsync(CodeText.Create(condition.Condition.Describe())))</span>
+                                    </li>
+                                }
+                            </ul>
+                        </td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        </div>
     </div>
 }

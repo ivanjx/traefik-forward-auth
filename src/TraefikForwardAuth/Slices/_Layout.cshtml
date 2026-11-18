@@ -10,22 +10,32 @@
 </head>
 <body>
 <header class="site-header">
-    <div class="brand">
-        <a href="/settings">Traefik Forward Auth</a>
-        <span class="admin-email">@Model.AdminEmail</span>
+    <div class="container">
+        <div class="brand-row">
+            <a class="brand" href="/settings">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6l8-3z"/>
+                    <path d="M9 12l2 2 4-4"/>
+                </svg>
+                Traefik Forward Auth
+            </a>
+            <div class="account">
+                <span>@Model.AdminEmail</span>
+                <a href="/logout">Log out</a>
+            </div>
+        </div>
+        <nav class="site-nav">
+            <a href="/settings" class="@(Model.Active == "settings" ? "active" : null)">Settings</a>
+            <a href="/providers" class="@(Model.Active == "providers" ? "active" : null)">Providers</a>
+            <a href="/rules" class="@(Model.Active == "rules" ? "active" : null)">Rules</a>
+            <a href="/access" class="@(Model.Active == "access" ? "active" : null)">Users &amp; access</a>
+            <a href="/sessions" class="@(Model.Active == "sessions" ? "active" : null)">Sessions</a>
+            <a href="/admin-sessions" class="@(Model.Active == "admin-sessions" ? "active" : null)">Admin sessions</a>
+            <a href="/audit" class="@(Model.Active == "audit" ? "active" : null)">Audit</a>
+        </nav>
     </div>
-    <nav class="site-nav">
-        <a href="/settings" class="@(Model.Active == "settings" ? "active" : null)">Settings</a>
-        <a href="/providers" class="@(Model.Active == "providers" ? "active" : null)">Providers</a>
-        <a href="/rules" class="@(Model.Active == "rules" ? "active" : null)">Rules</a>
-        <a href="/access" class="@(Model.Active == "access" ? "active" : null)">Users &amp; access</a>
-        <a href="/sessions" class="@(Model.Active == "sessions" ? "active" : null)">Sessions</a>
-        <a href="/admin-sessions" class="@(Model.Active == "admin-sessions" ? "active" : null)">Admin sessions</a>
-        <a href="/audit" class="@(Model.Active == "audit" ? "active" : null)">Audit</a>
-        <a href="/logout" class="logout">Log out</a>
-    </nav>
 </header>
-<main class="content">
+<main class="content container">
     @if (!string.IsNullOrEmpty(Model.Flash))
     {
         <div class="banner @(Model.FlashIsError ? "banner-error" : "banner-ok")">@Model.Flash</div>

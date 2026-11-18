@@ -1,0 +1,29 @@
+@inherits RazorSlice<AccessTableModel>
+
+<div class="table-wrap">
+    <table>
+        <thead>
+        <tr><th>Kind</th><th>Value</th><th>Role</th><th class="actions"></th></tr>
+        </thead>
+        <tbody>
+        @if (Model.Entries.Count == 0)
+        {
+            <tr><td colspan="4" class="empty">@Model.EmptyText</td></tr>
+        }
+        @foreach (var entry in Model.Entries)
+        {
+            <tr>
+                <td><span class="pill">@entry.Kind</span></td>
+                <td>@entry.Value</td>
+                <td>@entry.Role</td>
+                <td class="actions">
+                    <form method="post" action="/access/@entry.Id/delete">
+                        <input type="hidden" name="__RequestVerificationToken" value="@Model.AntiforgeryToken">
+                        <button type="submit" class="small danger">Delete</button>
+                    </form>
+                </td>
+            </tr>
+        }
+        </tbody>
+    </table>
+</div>

@@ -1,4 +1,7 @@
 using System.Globalization;
+using System.Text;
+using System.Text.Encodings.Web;
+using System.Text.Json;
 using TraefikForwardAuth.Auth;
 using TraefikForwardAuth.Policy;
 using TraefikForwardAuth.Rules;
@@ -51,7 +54,7 @@ public sealed record ProviderTestModel(string ProviderName, bool Success, string
 public sealed record RuleRow(
     string Id,
     string Name,
-    string Action,
+    RuleAction Action,
     string Provider,
     bool Enabled,
     string Summary,
@@ -131,6 +134,15 @@ public sealed record AccessPageModel
     public required IReadOnlyList<RuleDefinition> Rules { get; init; }
 
     public string? SelectedRuleId { get; init; }
+}
+
+public sealed record AccessTableModel
+{
+    public required IReadOnlyList<AccessEntry> Entries { get; init; }
+
+    public required string AntiforgeryToken { get; init; }
+
+    public required string EmptyText { get; init; }
 }
 
 public sealed record SessionsPageModel
@@ -233,6 +245,9 @@ public static class AdminUi
 
     public static string FieldValue(ConditionField field) => field.ToString().ToLowerInvariant();
 
+    public static string ActionLabel(RuleAction action) =>
+        action == RuleAction.Allow ? "Allow without login" : "Require login";
+
     public static string Label(ProviderDefinition definition) => definition.Name switch
     {
         ProviderDefinition.Google => "Google",
@@ -240,6 +255,27 @@ public static class AdminUi
         ProviderDefinition.GenericOAuth => "Generic OAuth2",
         _ => definition.Name
     };
+
+    /// <summary>Pretty-prints stored JSON for display. Escaping is relaxed because Razor HTML-encodes the result.</summary>
+    public static string FormatJson(string json)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            using var buffer = new MemoryStream();
+
+            using (var writer = new Utf8JsonWriter(buffer, new JsonWriterOptions { Indented = true, Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping }))
+            {
+                document.WriteTo(writer);
+            }
+
+            return Encoding.UTF8.GetString(buffer.GetBuffer(), 0, (int)buffer.Length);
+        }
+        catch (JsonException)
+        {
+            return json;
+        }
+    }
 
     public static string Time(DateTimeOffset value) =>
         value.ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss 'UTC'", CultureInfo.InvariantCulture);

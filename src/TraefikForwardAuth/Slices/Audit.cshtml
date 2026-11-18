@@ -1,36 +1,42 @@
 @inherits RazorSlice<AuditPageModel>
 @implements IUsesLayout<_Layout, LayoutModel>
 
-<h1>Audit log</h1>
-<p class="lede">The 500 most recent administrative changes.</p>
+<div class="page-head">
+    <div>
+        <h1>Audit log</h1>
+        <p class="lede">The 500 most recent administrative changes.</p>
+    </div>
+</div>
 
-<table>
-    <thead>
-    <tr>
-        <th class="nowrap">Time</th>
-        <th>Admin</th>
-        <th>Action</th>
-        <th>Entity</th>
-        <th>Diff</th>
-    </tr>
-    </thead>
-    <tbody>
-    @if (Model.Entries.Count == 0)
-    {
-        <tr><td colspan="5" class="muted">No audit entries yet.</td></tr>
-    }
-    @foreach (var entry in Model.Entries)
-    {
+<div class="table-wrap">
+    <table>
+        <thead>
         <tr>
-            <td class="nowrap">@AdminUi.Time(entry.CreatedAt)</td>
-            <td>@entry.AdminEmail</td>
-            <td class="mono">@entry.Action</td>
-            <td class="mono">@entry.Entity</td>
-            <td><pre>@entry.DiffJson</pre></td>
+            <th>Time</th>
+            <th>Admin</th>
+            <th>Action</th>
+            <th>Entity</th>
+            <th>Diff</th>
         </tr>
-    }
-    </tbody>
-</table>
+        </thead>
+        <tbody>
+        @if (Model.Entries.Count == 0)
+        {
+            <tr><td colspan="5" class="empty">No audit entries yet.</td></tr>
+        }
+        @foreach (var entry in Model.Entries)
+        {
+            <tr>
+                <td class="top nowrap small">@AdminUi.Time(entry.CreatedAt)</td>
+                <td class="top nowrap">@entry.AdminEmail</td>
+                <td class="top nowrap"><span class="pill accent">@entry.Action</span></td>
+                <td class="top mono entity" title="@entry.Entity">@entry.Entity</td>
+                <td class="top audit-diff"><pre>@AdminUi.FormatJson(entry.DiffJson)</pre></td>
+            </tr>
+        }
+        </tbody>
+    </table>
+</div>
 
 @functions {
     public LayoutModel LayoutModel => Model.Layout;

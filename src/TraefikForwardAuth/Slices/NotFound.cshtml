@@ -1,9 +1,11 @@
 @inherits RazorSlice<NotFoundPageModel>
 @implements IUsesLayout<_Layout, LayoutModel>
 
-<h1>Not found</h1>
-<p>The page you requested does not exist.</p>
-<p><a class="button" href="/settings">Back to settings</a></p>
+<div class="card empty-state">
+    <h1>Not found</h1>
+    <p class="muted">The page you requested does not exist.</p>
+    <a class="button" href="/settings">Back to settings</a>
+</div>
 
 @functions {
     public LayoutModel LayoutModel => Model.Layout;

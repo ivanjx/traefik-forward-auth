@@ -1,0 +1,6 @@
+@inherits RazorSlice<ProviderTestModel>
+
+<div class="banner @(Model.Success ? "banner-ok" : "banner-error")">
+    <strong>@(Model.Success ? "Connection OK" : "Connection failed")</strong>
+    <div>@Model.Message</div>
+</div>

@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="src/TraefikForwardAuth/TraefikForwardAuth.csproj" />
+  <Project Path="tests/TraefikForwardAuth.Tests/TraefikForwardAuth.Tests.csproj" />
+</Solution>

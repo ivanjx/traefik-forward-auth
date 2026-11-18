@@ -1,0 +1,44 @@
+@inherits RazorSlice<ProvidersPageModel>
+@implements IUsesLayout<_Layout, LayoutModel>
+
+<h1>Providers</h1>
+<p class="lede">OAuth providers available to forward-auth and to the default rule action.</p>
+
+<table>
+    <thead>
+    <tr>
+        <th>Name</th>
+        <th>Type</th>
+        <th>Client ID</th>
+        <th>Secret</th>
+        <th class="actions"></th>
+    </tr>
+    </thead>
+    <tbody>
+    @if (Model.Providers.Count == 0)
+    {
+        <tr><td colspan="5" class="muted">No providers configured yet.</td></tr>
+    }
+    @foreach (var provider in Model.Providers)
+    {
+        <tr>
+            <td><a href="/providers/@provider.Name">@provider.Name</a></td>
+            <td>@provider.Label</td>
+            <td class="mono">@provider.ClientId</td>
+            <td>@(provider.HasSecret ? "Set" : "Not set")</td>
+            <td class="actions"><a class="button small secondary" href="/providers/@provider.Name">Edit</a></td>
+        </tr>
+    }
+    </tbody>
+</table>
+
+<h2>Add a provider</h2>
+<div class="button-row">
+    <a class="button" href="/providers/google">Add Google</a>
+    <a class="button" href="/providers/oidc">Add OpenID Connect</a>
+    <a class="button" href="/providers/generic-oauth">Add Generic OAuth2</a>
+</div>
+
+@functions {
+    public LayoutModel LayoutModel => Model.Layout;
+}

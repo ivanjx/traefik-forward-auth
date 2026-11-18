@@ -1,0 +1,63 @@
+@inherits RazorSlice<SimulateResultModel>
+
+@if (!string.IsNullOrEmpty(Model.Error) || Model.Request is null || Model.Result is null)
+{
+    <div class="banner banner-error">@(Model.Error ?? "The request could not be evaluated.")</div>
+}
+else
+{
+    <div class="card">
+        <p class="muted small">
+            <span class="mono">@Model.Request.Method @Model.Request.Host@Model.Request.Path</span>
+            → @(Model.Result.Result.IsDefault ? "default action" : "rule: " + Model.Result.Result.RuleLabel)
+            → <strong>@(Model.Result.Result.Action == RuleAction.Allow ? "Allow without login" : "Require login")</strong>
+            (@Model.Result.Result.ProviderName)
+        </p>
+
+        <table>
+            <thead>
+            <tr>
+                <th>Rule</th>
+                <th>Matched</th>
+                <th>Conditions</th>
+            </tr>
+            </thead>
+            <tbody>
+            @foreach (var simulation in Model.Result.Rules)
+            {
+                <tr>
+                    <td>@simulation.Rule.Definition.Name</td>
+                    <td>
+                        @if (simulation.Matched)
+                        {
+                            <span class="pill ok">match</span>
+                        }
+                        else
+                        {
+                            <span class="pill">no match</span>
+                        }
+                    </td>
+                    <td>
+                        <ul style="margin: 0; padding-left: 18px;">
+                            @foreach (var condition in simulation.Conditions)
+                            {
+                                <li>
+                                    @if (condition.Matched)
+                                    {
+                                        <span class="pill ok">pass</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="pill bad">fail</span>
+                                    }
+                                    @condition.Condition.Describe()
+                                </li>
+                            }
+                        </ul>
+                    </td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    </div>
+}

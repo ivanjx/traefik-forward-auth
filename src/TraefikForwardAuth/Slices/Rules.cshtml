@@ -1,0 +1,66 @@
+@inherits RazorSlice<RulesPageModel>
+@implements IUsesLayout<_Layout, LayoutModel>
+
+<div class="button-row" style="justify-content: space-between; margin-bottom: 16px;">
+    <h1 style="margin: 0;">Rules</h1>
+    <a class="button" href="/rules/new">New rule</a>
+</div>
+<p class="lede">Rules run from top to bottom and the first match wins. If nothing matches, the default action from settings applies.</p>
+
+<table>
+    <thead>
+    <tr>
+        <th class="nowrap">#</th>
+        <th>Name</th>
+        <th>Action</th>
+        <th>Provider</th>
+        <th>Enabled</th>
+        <th>Summary</th>
+        <th class="actions"></th>
+    </tr>
+    </thead>
+    <tbody>
+    @if (Model.Rules.Count == 0)
+    {
+        <tr><td colspan="7" class="muted">No rules yet. Every request uses the default action.</td></tr>
+    }
+    @for (var i = 0; i < Model.Rules.Count; i++)
+    {
+        var rule = Model.Rules[i];
+        <tr>
+            <td class="nowrap">@(i + 1)</td>
+            <td><a href="/rules/@rule.Id">@rule.Name</a></td>
+            <td class="nowrap">@rule.Action</td>
+            <td>@rule.Provider</td>
+            <td>
+                <form method="post" action="/rules/@rule.Id/toggle">
+                    <input type="hidden" name="__RequestVerificationToken" value="@Model.Layout.AntiforgeryToken">
+                    <button type="submit" class="small secondary">@(rule.Enabled ? "Enabled" : "Disabled")</button>
+                </form>
+            </td>
+            <td class="rule-summary">@rule.Summary</td>
+            <td class="actions">
+                <form method="post" action="/rules/@rule.Id/move">
+                    <input type="hidden" name="__RequestVerificationToken" value="@Model.Layout.AntiforgeryToken">
+                    <input type="hidden" name="direction" value="up">
+                    <button type="submit" class="small secondary" title="Move up" disabled="@rule.IsFirst">↑</button>
+                </form>
+                <form method="post" action="/rules/@rule.Id/move">
+                    <input type="hidden" name="__RequestVerificationToken" value="@Model.Layout.AntiforgeryToken">
+                    <input type="hidden" name="direction" value="down">
+                    <button type="submit" class="small secondary" title="Move down" disabled="@rule.IsLast">↓</button>
+                </form>
+                <a class="button small secondary" href="/rules/@rule.Id">Edit</a>
+                <form method="post" action="/rules/@rule.Id/delete" onsubmit="return confirm('Delete this rule and its per-rule access entries?')">
+                    <input type="hidden" name="__RequestVerificationToken" value="@Model.Layout.AntiforgeryToken">
+                    <button type="submit" class="small danger">Delete</button>
+                </form>
+            </td>
+        </tr>
+    }
+    </tbody>
+</table>
+
+@functions {
+    public LayoutModel LayoutModel => Model.Layout;
+}

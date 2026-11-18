@@ -1,0 +1,36 @@
+@inherits RazorLayoutSlice<LayoutModel>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>@Model.Title · Traefik Forward Auth</title>
+    <link rel="stylesheet" href="/assets/site.css">
+    <script src="/assets/htmx.min.js" defer></script>
+</head>
+<body>
+<header class="site-header">
+    <div class="brand">
+        <a href="/settings">Traefik Forward Auth</a>
+        <span class="admin-email">@Model.AdminEmail</span>
+    </div>
+    <nav class="site-nav">
+        <a href="/settings" class="@(Model.Active == "settings" ? "active" : null)">Settings</a>
+        <a href="/providers" class="@(Model.Active == "providers" ? "active" : null)">Providers</a>
+        <a href="/rules" class="@(Model.Active == "rules" ? "active" : null)">Rules</a>
+        <a href="/access" class="@(Model.Active == "access" ? "active" : null)">Users &amp; access</a>
+        <a href="/sessions" class="@(Model.Active == "sessions" ? "active" : null)">Sessions</a>
+        <a href="/admin-sessions" class="@(Model.Active == "admin-sessions" ? "active" : null)">Admin sessions</a>
+        <a href="/audit" class="@(Model.Active == "audit" ? "active" : null)">Audit</a>
+        <a href="/logout" class="logout">Log out</a>
+    </nav>
+</header>
+<main class="content">
+    @if (!string.IsNullOrEmpty(Model.Flash))
+    {
+        <div class="banner @(Model.FlashIsError ? "banner-error" : "banner-ok")">@Model.Flash</div>
+    }
+    @await RenderBodyAsync()
+</main>
+</body>
+</html>

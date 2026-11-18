@@ -1,3 +1,11 @@
-example
-.travis.yml
 .git
+.github
+examples
+test
+tests
+**/bin
+**/obj
+publish
+*.db
+*.db-shm
+*.db-wal

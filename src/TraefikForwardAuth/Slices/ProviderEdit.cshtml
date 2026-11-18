@@ -1,0 +1,107 @@
+@inherits RazorSlice<ProviderEditPageModel>
+@implements IUsesLayout<_Layout, LayoutModel>
+
+<h1>@(Model.Exists ? "Edit provider" : "Add provider"): @Model.Provider.Name</h1>
+<p class="lede">@AdminUi.Label(Model.Provider)</p>
+
+<form class="stack" method="post" action="/providers/@Model.Provider.Name" id="provider-form">
+    <input type="hidden" name="__RequestVerificationToken" value="@Model.Layout.AntiforgeryToken">
+
+    <div class="field">
+        <label for="client_id">Client ID</label>
+        <input id="client_id" type="text" name="client_id" value="@Model.Provider.ClientId">
+    </div>
+
+    <div class="field">
+        <label for="client_secret">Client secret</label>
+        <input id="client_secret" type="password" name="client_secret" value="" autocomplete="new-password" placeholder="@(Model.Exists && Model.Provider.HasSecret ? "Leave blank to keep the current secret" : "")">
+        @if (Model.Exists && Model.Provider.HasSecret)
+        {
+            <span class="secret-state">Secret is set</span>
+        }
+    </div>
+
+    @if (Model.Provider.Name == ProviderDefinition.Oidc || Model.Provider.Name == ProviderDefinition.GenericOAuth)
+    {
+        <div class="field">
+            <label for="issuer_url">Issuer URL</label>
+            <input id="issuer_url" type="url" name="issuer_url" value="@Model.Provider.IssuerUrl" placeholder="https://issuer.example.com">
+        </div>
+    }
+
+    @if (Model.Provider.Name == ProviderDefinition.GenericOAuth)
+    {
+        <div class="field">
+            <label for="auth_url">Authorization URL</label>
+            <input id="auth_url" type="url" name="auth_url" value="@Model.Provider.AuthUrl" placeholder="https://provider.example.com/oauth/authorize">
+        </div>
+
+        <div class="field">
+            <label for="token_url">Token URL</label>
+            <input id="token_url" type="url" name="token_url" value="@Model.Provider.TokenUrl" placeholder="https://provider.example.com/oauth/token">
+        </div>
+
+        <div class="field">
+            <label for="user_url">User info URL</label>
+            <input id="user_url" type="url" name="user_url" value="@Model.Provider.UserUrl" placeholder="https://provider.example.com/oauth/userinfo">
+        </div>
+    }
+
+    <div class="field">
+        <label for="prompt">Prompt</label>
+        <input id="prompt" type="text" name="prompt" value="@Model.Provider.Prompt" placeholder="select_account">
+    </div>
+
+    <div class="field">
+        <label for="scopes">Scopes</label>
+        <textarea id="scopes" name="scopes" placeholder="openid email profile">@string.Join(' ', Model.Provider.Scopes)</textarea>
+        <span class="hint">Space or comma separated. Defaults are used when empty.</span>
+    </div>
+
+    @if (Model.Provider.Name == ProviderDefinition.GenericOAuth)
+    {
+        <div class="field">
+            <label for="token_style">Token style</label>
+            <select id="token_style" name="token_style">
+                <option value="header" selected="@(Model.Provider.TokenStyle == "header")">Authorization header</option>
+                <option value="query" selected="@(Model.Provider.TokenStyle == "query")">Query parameter</option>
+            </select>
+        </div>
+
+        <div class="field">
+            <label for="resource">Resource</label>
+            <input id="resource" type="text" name="resource" value="@Model.Provider.Resource">
+        </div>
+    }
+
+    <div class="button-row">
+        <button type="submit">Save provider</button>
+        <a class="button secondary" href="/providers">Cancel</a>
+    </div>
+</form>
+
+@if (Model.Exists)
+{
+    <h2>Connection test</h2>
+    <div class="card">
+        <div class="button-row">
+            <button type="button" class="secondary"
+                    hx-post="/providers/@Model.Provider.Name/test"
+                    hx-include="#provider-form"
+                    hx-target="#provider-test"
+                    hx-swap="innerHTML">Test connection</button>
+            <span class="muted small">Saves nothing; uses the values in the form.</span>
+        </div>
+        <div id="provider-test"></div>
+    </div>
+
+    <h2>Delete provider</h2>
+    <form method="post" action="/providers/@Model.Provider.Name/delete" onsubmit="return confirm('Delete this provider?')">
+        <input type="hidden" name="__RequestVerificationToken" value="@Model.Layout.AntiforgeryToken">
+        <button class="danger" type="submit">Delete provider</button>
+    </form>
+}
+
+@functions {
+    public LayoutModel LayoutModel => Model.Layout;
+}

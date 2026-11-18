@@ -50,4 +50,7 @@ public interface ISessionRepository
     Task UpdateSessionsLastSeenAsync(
         IReadOnlyList<(string Id, DateTimeOffset LastSeenAt)> sessions,
         CancellationToken cancellationToken);
+
+    /// <summary>Deletes sessions that expired, or were revoked, before <paramref name="cutoff"/>. Returns the number deleted.</summary>
+    Task<int> DeleteSessionsEndedBeforeAsync(DateTimeOffset cutoff, CancellationToken cancellationToken);
 }

@@ -12,6 +12,10 @@ public sealed class SessionManager : ISessionStore, IAsyncDisposable
 {
     private const int BatchSize = 200;
     private static readonly TimeSpan FlushInterval = TimeSpan.FromSeconds(15);
+    private static readonly TimeSpan PruneInterval = TimeSpan.FromHours(1);
+
+    /// <summary>How long expired or revoked sessions are kept for the admin UI before they are deleted.</summary>
+    public static readonly TimeSpan Retention = TimeSpan.FromDays(7);
 
     private readonly ISessionRepository _repository;
     private readonly TfaLogger _logger;
@@ -30,17 +34,23 @@ public sealed class SessionManager : ISessionStore, IAsyncDisposable
     private readonly CancellationTokenSource _disposeCts = new();
     private readonly Task _flushLoop;
     private int _disposed;
+    private DateTimeOffset _lastPrune;
 
     public SessionManager(ISessionRepository repository, TfaLogger logger, TimeProvider timeProvider)
     {
         _repository = repository;
         _logger = logger;
         _timeProvider = timeProvider;
+        _lastPrune = timeProvider.GetUtcNow();
         _flushLoop = Task.Run(FlushLoopAsync);
     }
 
     public async Task InitializeAsync(CancellationToken cancellationToken)
     {
+        var cutoff = _timeProvider.GetUtcNow() - Retention;
+
+        await DeleteEndedBeforeAsync(cutoff, cancellationToken);
+
         var sessions = await _repository.LoadSessionsAsync(cancellationToken);
 
         _sessions.Clear();
@@ -48,8 +58,9 @@ public sealed class SessionManager : ISessionStore, IAsyncDisposable
         foreach (var session in sessions)
         {
             // Revoked rows can be omitted: they can never become active again. Expired rows are
-            // kept so the admin UI can still show them; IsActive filters them on every read.
-            if (session.RevokedAt is null)
+            // kept for the retention window so the admin UI can still show them; IsActive filters
+            // them on every read.
+            if (session.RevokedAt is null && session.ExpiresAt >= cutoff)
             {
                 _sessions[session.Id] = session;
             }
@@ -280,6 +291,7 @@ public sealed class SessionManager : ISessionStore, IAsyncDisposable
                 catch (OperationCanceledException) when (!_disposeCts.IsCancellationRequested)
                 {
                     // Interval elapsed with no traffic: flush whatever is pending.
+                    await PruneIfDueAsync(_disposeCts.Token);
                     await FlushPendingAsync(_disposeCts.Token);
                     lastFlush = _timeProvider.GetUtcNow();
                     continue;
@@ -295,6 +307,9 @@ public sealed class SessionManager : ISessionStore, IAsyncDisposable
                 {
                     flushRequested |= Process(next);
                 }
+
+                // Prune before flushing so flush waiters observe a completed prune.
+                await PruneIfDueAsync(_disposeCts.Token);
 
                 var now = _timeProvider.GetUtcNow();
 
@@ -353,6 +368,52 @@ public sealed class SessionManager : ISessionStore, IAsyncDisposable
             {
                 return _pending.Count;
             }
+        }
+    }
+
+    private async Task PruneIfDueAsync(CancellationToken cancellationToken)
+    {
+        var now = _timeProvider.GetUtcNow();
+
+        if (now - _lastPrune < PruneInterval)
+        {
+            return;
+        }
+
+        _lastPrune = now;
+
+        var cutoff = now - Retention;
+
+        foreach (var entry in _sessions)
+        {
+            if (entry.Value.ExpiresAt < cutoff)
+            {
+                _sessions.TryRemove(entry);
+            }
+        }
+
+        await DeleteEndedBeforeAsync(cutoff, cancellationToken);
+    }
+
+    private async Task DeleteEndedBeforeAsync(DateTimeOffset cutoff, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var deleted = await _repository.DeleteSessionsEndedBeforeAsync(cutoff, cancellationToken);
+
+            if (deleted > 0)
+            {
+                _logger.Debug("Pruned ended sessions", ("count", deleted));
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            // Pruning is housekeeping; a failure must not stop startup or the last-seen loop.
+            _logger.Error("Failed to prune sessions", ("error", exception.Message));
         }
     }
 

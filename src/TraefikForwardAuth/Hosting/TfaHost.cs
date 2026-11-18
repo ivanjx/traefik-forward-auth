@@ -1,4 +1,5 @@
 using TraefikForwardAuth.Http;
+using TraefikForwardAuth.Logging;
 
 namespace TraefikForwardAuth.Hosting;
 
@@ -13,6 +14,7 @@ public static class TfaHost
         var app = builder.Build();
         var middleware = new ForwardAuthMiddleware(runtime.Policy, runtime.Sessions, runtime.Logger, runtime.TimeProvider);
 
+        UseExceptionLogging(app, runtime.Logger);
         app.Run(middleware.InvokeAsync);
 
         return app;
@@ -26,6 +28,7 @@ public static class TfaHost
         var builder = CreateBuilder(runtime, configure, listen, runtime.Options.AdminPort);
         var app = builder.Build();
 
+        UseExceptionLogging(app, runtime.Logger);
         Admin.AdminEndpoints.Map(app, runtime);
 
         return app;
@@ -48,5 +51,34 @@ public static class TfaHost
         configure?.Invoke(builder);
 
         return builder;
+    }
+
+    /// <summary>
+    /// Framework logging is cleared, so unhandled exceptions would otherwise turn into silent 500s.
+    /// </summary>
+    private static void UseExceptionLogging(WebApplication app, TfaLogger logger)
+    {
+        app.Use(async (context, next) =>
+        {
+            try
+            {
+                await next(context);
+            }
+            catch (Exception exception) when (!context.RequestAborted.IsCancellationRequested)
+            {
+                logger.Error(
+                    "Unhandled request exception",
+                    ("path", context.Request.Path.Value),
+                    ("error", exception.Message));
+
+                if (context.Response.HasStarted)
+                {
+                    throw;
+                }
+
+                context.Response.Clear();
+                context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+            }
+        });
     }
 }

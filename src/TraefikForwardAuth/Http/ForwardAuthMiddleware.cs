@@ -81,16 +81,10 @@ public sealed class ForwardAuthMiddleware
         var logger = LogRequest(context, "Auth", result.RuleLabel, "Authenticating request");
         var settings = snapshot.Settings;
 
-        if (!snapshot.Providers.TryGetValue(result.ProviderName, out var provider))
-        {
-            logger.Debug("Provider not configured", ("provider", result.ProviderName));
-            return GoHttpCompat.WriteErrorAsync(context, StatusCodes.Status503ServiceUnavailable, "Not configured");
-        }
-
         if (!context.Request.Cookies.TryGetValue(settings.CookieName, out var cookieValue) ||
             string.IsNullOrEmpty(cookieValue))
         {
-            return RedirectToLoginAsync(context, forwarded, settings, provider, logger);
+            return RedirectToLoginAsync(context, forwarded, snapshot, result.ProviderName, logger);
         }
 
         var now = _timeProvider.GetUtcNow();
@@ -108,7 +102,7 @@ public sealed class ForwardAuthMiddleware
             if (failure == CookieValidationFailure.Expired)
             {
                 logger.Info("Cookie has expired");
-                return RedirectToLoginAsync(context, forwarded, settings, provider, logger);
+                return RedirectToLoginAsync(context, forwarded, snapshot, result.ProviderName, logger);
             }
 
             logger.Warn("Invalid cookie", ("error", error));
@@ -125,7 +119,7 @@ public sealed class ForwardAuthMiddleware
             session.Kind != SessionKind.ForwardAuth ||
             !string.Equals(session.Email, identity.Email, StringComparison.Ordinal))
         {
-            return RedirectToLoginAsync(context, forwarded, settings, provider, logger);
+            return RedirectToLoginAsync(context, forwarded, snapshot, result.ProviderName, logger);
         }
 
         if (!AccessValidator.IsAllowed(snapshot.Access, result.RuleId, identity.Email, settings.MatchWhitelistOrDomain))
@@ -197,6 +191,15 @@ public sealed class ForwardAuthMiddleware
             return GoHttpCompat.WriteErrorAsync(context, StatusCodes.Status401Unauthorized, "Not authorized");
         }
 
+        if (!TryValidateRedirect(settings, forwarded, redirect, out var redirectError))
+        {
+            logger.Warn(
+                "Invalid redirect in csrf cookie",
+                ("redirect", redirect),
+                ("error", redirectError));
+            return GoHttpCompat.WriteErrorAsync(context, StatusCodes.Status401Unauthorized, "Not authorized");
+        }
+
         GoHttpCompat.DeleteCookie(
             context,
             csrfCookieName,
@@ -241,15 +244,26 @@ public sealed class ForwardAuthMiddleware
         }
 
         var domain = CookieService.CookieDomain(settings, forwarded.Host);
-        var session = await _sessions.CreateAsync(
-            SessionKind.ForwardAuth,
-            user.Email,
-            providerName,
-            domain,
-            SourceIp(context),
-            context.Request.Headers.UserAgent.ToString(),
-            settings.Lifetime,
-            context.RequestAborted);
+        SessionRecord session;
+
+        try
+        {
+            session = await _sessions.CreateAsync(
+                SessionKind.ForwardAuth,
+                user.Email,
+                providerName,
+                domain,
+                SourceIp(context),
+                context.Request.Headers.UserAgent.ToString(),
+                settings.Lifetime,
+                context.RequestAborted);
+        }
+        catch (Exception exception) when (!context.RequestAborted.IsCancellationRequested)
+        {
+            logger.Error("Failed to store session", ("error", exception.Message));
+            await GoHttpCompat.WriteErrorAsync(context, StatusCodes.Status503ServiceUnavailable, "Service unavailable");
+            return;
+        }
 
         var cookieValue = CookieService.CreateAuthCookieValue(
             settings.SigningSecret,
@@ -324,10 +338,19 @@ public sealed class ForwardAuthMiddleware
     private Task RedirectToLoginAsync(
         HttpContext context,
         ForwardedRequest forwarded,
-        PolicySettings settings,
-        IProvider provider,
+        PolicySnapshot snapshot,
+        string providerName,
         TfaLogger logger)
     {
+        var settings = snapshot.Settings;
+
+        // Looked up only here so a missing provider never blocks users who already hold a valid session.
+        if (!snapshot.Providers.TryGetValue(providerName, out var provider))
+        {
+            logger.Debug("Provider not configured", ("provider", providerName));
+            return GoHttpCompat.WriteErrorAsync(context, StatusCodes.Status503ServiceUnavailable, "Not configured");
+        }
+
         var nonce = CsrfService.NewNonce();
         var csrfCookieName = CsrfService.CookieName(settings, nonce);
         var secure = !settings.InsecureCookie;
@@ -369,6 +392,45 @@ public sealed class ForwardAuthMiddleware
         }
 
         return string.Concat(forwarded.Proto, "://", forwarded.Host, settings.UrlPath);
+    }
+
+    /// <summary>
+    /// Port of upstream <c>ValidateRedirect</c>: the return URL must be http(s) and point at the request host,
+    /// or at a host under the shared cookie domain when the auth host is in use.
+    /// </summary>
+    private static bool TryValidateRedirect(
+        PolicySettings settings,
+        ForwardedRequest forwarded,
+        string redirect,
+        out string error)
+    {
+        if (!Uri.TryCreate(redirect, UriKind.Absolute, out var uri) ||
+            (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+        {
+            error = "Redirect is not an absolute http(s) URL";
+            return false;
+        }
+
+        var redirectHost = uri.Host;
+
+        if (CookieService.UseAuthDomain(settings, forwarded.Host, out var authDomain))
+        {
+            if (!string.Equals(redirectHost, authDomain, StringComparison.OrdinalIgnoreCase) &&
+                !redirectHost.EndsWith("." + authDomain, StringComparison.OrdinalIgnoreCase))
+            {
+                error = "Redirect host is not under the cookie domain";
+                return false;
+            }
+        }
+        else if (!string.Equals(redirectHost, CookieService.StripPort(forwarded.Host), StringComparison.OrdinalIgnoreCase))
+        {
+            error = "Redirect host does not match the request host";
+            return false;
+        }
+
+        error = "";
+
+        return true;
     }
 
     private static Task RenderPageAsync(HttpContext context, int statusCode, AuthPageModel model)

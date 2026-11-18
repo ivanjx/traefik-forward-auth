@@ -511,6 +511,45 @@ public sealed class AuthTests
     }
 
     [Fact]
+    public async Task InitializeDeletesAndSkipsSessionsPastRetention()
+    {
+        var time = new MutableTimeProvider();
+        var repository = new FakeSessionRepository();
+        var recent = Session("recent", "recent@example.com", time.Now.AddDays(-1));
+        var stale = Session("stale", "stale@example.com", time.Now - SessionManager.Retention - TimeSpan.FromMinutes(1));
+        var staleRevoked = Session("stale-revoked", "revoked@example.com", time.Now.AddHours(1)) with
+        {
+            RevokedAt = time.Now - SessionManager.Retention - TimeSpan.FromMinutes(1)
+        };
+        repository.Sessions.AddRange([recent, stale, staleRevoked]);
+
+        await using var manager = new SessionManager(repository, QuietLogger(time), time);
+        await manager.InitializeAsync(CancellationToken.None);
+
+        Assert.NotNull(manager.Get("recent"));
+        Assert.Null(manager.Get("stale"));
+        Assert.Equal(["recent"], repository.Sessions.Select(session => session.Id));
+    }
+
+    [Fact]
+    public async Task PeriodicPruneRemovesSessionsPastRetention()
+    {
+        var time = new MutableTimeProvider();
+        var repository = new FakeSessionRepository();
+        await using var manager = new SessionManager(repository, QuietLogger(time), time);
+        var old = await CreateForwardAuthAsync(manager, "old@example.com");
+
+        time.Advance(SessionManager.Retention + TimeSpan.FromHours(2));
+        var fresh = await CreateForwardAuthAsync(manager, "fresh@example.com");
+
+        await manager.FlushPendingUpdatesAsync(TestContext.Current.CancellationToken);
+
+        Assert.Null(manager.Get(old.Id));
+        Assert.NotNull(manager.Get(fresh.Id));
+        Assert.Equal([fresh.Id], repository.Sessions.Select(session => session.Id));
+    }
+
+    [Fact]
     public async Task DisposeFlushesPendingTouches()
     {
         var time = new MutableTimeProvider();
@@ -635,6 +674,8 @@ public sealed class AuthTests
 
         public List<IReadOnlyList<(string Id, DateTimeOffset LastSeenAt)>> LastSeenUpdates { get; } = [];
 
+        public List<DateTimeOffset> PruneCutoffs { get; } = [];
+
         public bool ThrowOnInsert { get; init; }
 
         public Task<IReadOnlyList<SessionRecord>> LoadSessionsAsync(CancellationToken cancellationToken) =>
@@ -670,6 +711,14 @@ public sealed class AuthTests
             LastSeenUpdates.Add(sessions.ToArray());
 
             return Task.CompletedTask;
+        }
+
+        public Task<int> DeleteSessionsEndedBeforeAsync(DateTimeOffset cutoff, CancellationToken cancellationToken)
+        {
+            PruneCutoffs.Add(cutoff);
+
+            return Task.FromResult(Sessions.RemoveAll(session =>
+                session.ExpiresAt < cutoff || (session.RevokedAt is { } revokedAt && revokedAt < cutoff)));
         }
     }
 }

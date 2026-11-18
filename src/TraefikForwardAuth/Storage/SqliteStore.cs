@@ -979,6 +979,30 @@ public sealed class SqliteStore : ISessionRepository, IAsyncDisposable
         }
     }
 
+    public async Task<int> DeleteSessionsEndedBeforeAsync(DateTimeOffset cutoff, CancellationToken cancellationToken)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            await using var connection = await OpenConnectionAsync(cancellationToken);
+            await using var command = connection.CreateCommand();
+
+            // Timestamps are stored as fixed-width UTC round-trip strings, so text comparison orders them.
+            command.CommandText =
+                """
+                DELETE FROM sessions
+                WHERE expires_at < $cutoff OR (revoked_at IS NOT NULL AND revoked_at < $cutoff);
+                """;
+            command.Parameters.AddWithValue("$cutoff", FormatTimestamp(cutoff));
+
+            return await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     public ValueTask DisposeAsync()
     {
         if (Interlocked.Exchange(ref _disposed, 1) == 0)

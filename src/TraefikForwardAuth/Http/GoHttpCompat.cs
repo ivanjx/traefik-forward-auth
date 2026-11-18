@@ -1,3 +1,4 @@
+using System.Text;
 using Microsoft.AspNetCore.WebUtilities;
 using TraefikForwardAuth.Rules;
 
@@ -19,8 +20,43 @@ public static class GoHttpCompat
         int statusCode = StatusCodes.Status307TemporaryRedirect)
     {
         context.Response.StatusCode = statusCode;
-        context.Response.Headers.Location = location;
+        context.Response.Headers.Location = EscapeNonAscii(location);
         return Task.CompletedTask;
+    }
+
+    private const string HexDigits = "0123456789ABCDEF";
+
+    /// <summary>
+    /// Percent-encodes the UTF-8 bytes of non-ASCII characters, as Go's <c>http.Redirect</c> does.
+    /// Kestrel rejects non-ASCII header values, and return URLs carry the decoded request path.
+    /// </summary>
+    internal static string EscapeNonAscii(string value)
+    {
+        if (Ascii.IsValid(value))
+        {
+            return value;
+        }
+
+        var builder = new StringBuilder(value.Length + 16);
+        Span<byte> utf8 = stackalloc byte[4];
+
+        foreach (var rune in value.EnumerateRunes())
+        {
+            if (rune.IsAscii)
+            {
+                builder.Append((char)rune.Value);
+                continue;
+            }
+
+            var written = rune.EncodeToUtf8(utf8);
+
+            for (var i = 0; i < written; i++)
+            {
+                builder.Append('%').Append(HexDigits[utf8[i] >> 4]).Append(HexDigits[utf8[i] & 0xF]);
+            }
+        }
+
+        return builder.ToString();
     }
 
     public static void AppendCookie(

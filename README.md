@@ -1,8 +1,8 @@
 # Traefik Forward Auth
 
-A forward authentication service for [Traefik](https://traefik.io), rewritten in C# as a Native AOT application.
+A forward authentication service for [Traefik](https://traefik.io), rewritten in C#.
 
-It provides OAuth/SSO login for any HTTP service behind Traefik and an admin UI for managing providers, access rules, and sessions. Configuration lives in SQLite; only admin login and deployment settings come from environment variables.
+It provides OAuth/SSO login for any HTTP service behind Traefik and an admin UI for managing providers, access rules, and sessions.
 
 ## How it works
 
@@ -20,7 +20,7 @@ flowchart LR
 
 - Traefik calls the forward-auth listener on port `4181` for every protected request.
 - The admin UI listens on port `4182`. Expose it through its own Traefik router; it is not reachable through the forward-auth listener.
-- Policy changes are written to SQLite, audited, compiled into an immutable snapshot, and swapped in atomically.
+- The forward-auth listener trusts `X-Forwarded-Method`, `-Proto`, `-Host`, `-Uri` and `-For` from whoever calls it. Keep port `4181` reachable only from Traefik (no published port, internal network).
 
 ## Quick start
 
@@ -114,20 +114,6 @@ If you use **Auth host** in Settings, only the auth host needs to be registered:
 https://auth.example.com/_oauth
 ```
 
-## Admin UI
-
-The UI is server-rendered with RazorSlices and htmx; both assets are embedded in the binary.
-
-- **Settings**: cookie name and domains, auth host, callback path, lifetime, default action/provider, logout redirect, "match whitelist or domain", and secret rotation. Rotating the secret logs out every user.
-- **Providers**: Google, OIDC and generic OAuth. Secrets are write-only; leaving the field blank keeps the stored secret. "Test connection" checks OIDC discovery or HTTP endpoints.
-- **Rules**: ordered first-match rules with an enable toggle and move up/down. Conditions support host, path, method, header and query parameter. The editor shows a plain-language summary and validation errors, and can simulate a request.
-- **Users & access**: global or per-rule email/domain entries with optional roles.
-- **Sessions**: forward-auth sessions with the cookie domain each was issued for; filter by email, revoke one or all sessions for a user. Revoking a session makes the next protected request redirect to login.
-- **Admin sessions**: admin UI sessions with host, IP, user agent, created and last seen. The current session is marked; revoking it signs you out.
-- **Audit log**: read-only record of every admin write.
-
-Every admin form carries an antiforgery token. Admin sessions are stored as `admin` rows so they can be revoked. `ADMIN_EMAILS` is checked on every request, so removing an address and restarting revokes access immediately.
-
 ## Rules
 
 A rule has a name, action (`Require login` or `Allow without login`), optional provider, and one or more conditions. All conditions must match. Values inside one condition are alternatives and each condition can be negated.
@@ -147,23 +133,6 @@ The callback path (`/_oauth` by default) and `/_oauth/logout` are handled before
 Access entries use the rule's own entries when it has any; otherwise the global entries apply. No entries means any authenticated user is allowed.
 
 Signed-in users without access, or with an invalid cookie, get a `401` page with a sign-out button. Visiting `https://<host>/_oauth/logout` on any protected host signs out; with Google the next login shows the account chooser.
-
-## Cookies and sessions
-
-The forward-auth cookie is signed with a secret generated on first boot:
-
-```
-base64url(HMAC-SHA256(secret, domain + email + expires + sid))|expires|email|sid
-```
-
-`sid` is a random 128-bit session id checked against an in-memory cache. Sessions survive restarts because they are stored in SQLite; last-seen timestamps are batched. Revoking a session takes effect immediately.
-
-## Data and deployment
-
-- SQLite runs in WAL mode. The database file is created with `0600` permissions.
-- Provider secrets are stored in plain text in SQLite. Protect the data volume; backups contain them.
-- Run exactly **one replica** with a persistent `DATA_DIR`. Revocation does not propagate to other replicas.
-- To reset the installation, stop the container and delete `traefik-forward-auth.db*` from `DATA_DIR`.
 
 ## Development
 

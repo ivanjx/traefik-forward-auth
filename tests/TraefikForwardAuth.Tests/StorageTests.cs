@@ -445,6 +445,43 @@ public sealed class StorageTests
     }
 
     [Fact]
+    public async Task DeleteSessionsEndedBeforeRemovesOnlyLongExpiredOrRevokedRows()
+    {
+        await WithStoreAsync(async store =>
+        {
+            await store.InitializeAsync(CancellationToken.None);
+
+            var cutoff = new DateTimeOffset(2026, 1, 10, 0, 0, 0, TimeSpan.Zero);
+            var active = new SessionRecord
+            {
+                Id = "active",
+                Kind = SessionKind.ForwardAuth,
+                Email = "a@example.com",
+                CreatedAt = cutoff.AddDays(-1),
+                ExpiresAt = cutoff.AddDays(1),
+                LastSeenAt = cutoff.AddDays(-1)
+            };
+            var expiredBefore = active with { Id = "expired-before", ExpiresAt = cutoff.AddSeconds(-1) };
+            var expiredAfter = active with { Id = "expired-after", ExpiresAt = cutoff.AddSeconds(1) };
+            var revokedBefore = active with { Id = "revoked-before" };
+            var revokedAfter = active with { Id = "revoked-after" };
+
+            foreach (var session in new[] { active, expiredBefore, expiredAfter, revokedBefore, revokedAfter })
+            {
+                await store.InsertSessionAsync(session, CancellationToken.None);
+            }
+
+            await store.MarkSessionsRevokedAsync([revokedBefore.Id], cutoff.AddSeconds(-1), CancellationToken.None);
+            await store.MarkSessionsRevokedAsync([revokedAfter.Id], cutoff.AddSeconds(1), CancellationToken.None);
+
+            Assert.Equal(2, await store.DeleteSessionsEndedBeforeAsync(cutoff, CancellationToken.None));
+            Assert.Equal(
+                ["active", "expired-after", "revoked-after"],
+                (await store.LoadSessionsAsync(CancellationToken.None)).Select(session => session.Id).Order());
+        });
+    }
+
+    [Fact]
     public async Task PolicyManagerBuildsSnapshotWithRulesAccessAndNoProviders()
     {
         await WithStoreAsync(async (SqliteStore store, TfaLogger logger) =>

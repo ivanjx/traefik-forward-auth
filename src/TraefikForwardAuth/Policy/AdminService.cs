@@ -62,8 +62,8 @@ public sealed class AdminService
 
     public async Task SaveProviderAsync(ProviderDefinition provider, string adminEmail, CancellationToken cancellationToken)
     {
-        var merged = await MergeProviderSecretAsync(provider, cancellationToken);
-        var errors = merged.ValidationErrors();
+        var (merged, error) = await MergeProviderSecretAsync(provider, cancellationToken);
+        var errors = error is null ? merged.ValidationErrors() : [error];
 
         if (errors.Count > 0)
         {
@@ -82,8 +82,8 @@ public sealed class AdminService
 
     public async Task<ProviderTestResult> TestProviderAsync(ProviderDefinition provider, CancellationToken cancellationToken)
     {
-        var merged = await MergeProviderSecretAsync(provider, cancellationToken);
-        var errors = merged.ValidationErrors();
+        var (merged, error) = await MergeProviderSecretAsync(provider, cancellationToken);
+        var errors = error is null ? merged.ValidationErrors() : [error];
 
         if (errors.Count > 0)
         {
@@ -187,38 +187,35 @@ public sealed class AdminService
         CancellationToken cancellationToken) =>
         _store.ListSessionsAsync(kind, emailFilter, cancellationToken);
 
-    public async Task RevokeSessionAsync(string id, string adminEmail, CancellationToken cancellationToken)
+    /// <summary>Revokes one session; returns false when it did not exist or was already revoked.</summary>
+    public Task<bool> RevokeSessionAsync(string id, string adminEmail, CancellationToken cancellationToken)
     {
         var session = _sessions.Get(id);
         var action = session?.Kind == SessionKind.Admin ? "admin_session.revoke" : "session.revoke";
 
-        await _sessions.RevokeAsync(id, cancellationToken);
-
-        await _store.AppendAuditAsync(
-            adminEmail,
-            action,
+        return _sessions.RevokeAsync(
             id,
-            BuildStringDiff("id", id),
+            new SessionRevocationAudit(adminEmail, action, id, _ => BuildStringDiff("id", id)),
             cancellationToken);
     }
 
-    public async Task<int> RevokeSessionsForEmailAsync(
+    public Task<int> RevokeSessionsForEmailAsync(
         string email,
         SessionKind kind,
         string adminEmail,
         CancellationToken cancellationToken)
     {
-        var count = await _sessions.RevokeForEmailAsync(email, kind, cancellationToken);
         var action = kind == SessionKind.Admin ? "admin_session.revoke_email" : "session.revoke_email";
 
-        await _store.AppendAuditAsync(
-            adminEmail,
-            action,
+        return _sessions.RevokeForEmailAsync(
             email,
-            $"{{\"email\":{Quote(email)},\"count\":{count}}}",
+            kind,
+            new SessionRevocationAudit(
+                adminEmail,
+                action,
+                email,
+                count => $"{{\"email\":{Quote(email)},\"count\":{count}}}"),
             cancellationToken);
-
-        return count;
     }
 
     public Task<IReadOnlyList<AuditEntry>> ListAuditAsync(int limit, CancellationToken cancellationToken) =>
@@ -232,19 +229,34 @@ public sealed class AdminService
     /// </summary>
     private Task RebuildAfterCommitAsync() => _policy.RebuildAsync(CancellationToken.None);
 
-    private async Task<ProviderDefinition> MergeProviderSecretAsync(
+    /// <summary>
+    /// A blank secret keeps the stored one, but only while every URL that receives the secret is unchanged;
+    /// otherwise any admin could send the stored secret to an endpoint of their choice (for example via
+    /// "Test connection") and read it there.
+    /// </summary>
+    private async Task<(ProviderDefinition Provider, string? Error)> MergeProviderSecretAsync(
         ProviderDefinition provider,
         CancellationToken cancellationToken)
     {
         if (!string.IsNullOrEmpty(provider.ClientSecret))
         {
-            return provider;
+            return (provider, null);
         }
 
         var configuration = await _store.LoadConfigurationAsync(cancellationToken);
         var existing = configuration.Providers.FirstOrDefault(candidate => candidate.Name == provider.Name);
 
-        return existing is null ? provider : provider with { ClientSecret = existing.ClientSecret };
+        if (existing is null || !existing.HasSecret)
+        {
+            return (provider, null);
+        }
+
+        if (!existing.HasSameSecretEndpoints(provider))
+        {
+            return (provider, "Re-enter the client secret when changing the issuer, token or user info URL.");
+        }
+
+        return (provider with { ClientSecret = existing.ClientSecret }, null);
     }
 
     private static void ValidateRule(RuleDefinition rule)

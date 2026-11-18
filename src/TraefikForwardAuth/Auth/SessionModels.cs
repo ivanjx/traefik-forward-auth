@@ -39,13 +39,24 @@ public interface ISessionStore
     bool TryGetActive(string id, DateTimeOffset now, out SessionRecord session);
 }
 
+/// <summary>
+/// Audit row written in the same transaction as a revocation, only when at least one session was revoked.
+/// <paramref name="Diff"/> receives the number of revoked sessions and returns the diff JSON.
+/// </summary>
+public sealed record SessionRevocationAudit(string AdminEmail, string Action, string Entity, Func<int, string> Diff);
+
 public interface ISessionRepository
 {
     Task<IReadOnlyList<SessionRecord>> LoadSessionsAsync(CancellationToken cancellationToken);
 
     Task InsertSessionAsync(SessionRecord session, CancellationToken cancellationToken);
 
-    Task MarkSessionsRevokedAsync(IReadOnlyCollection<string> ids, DateTimeOffset revokedAt, CancellationToken cancellationToken);
+    /// <summary>Marks the sessions revoked and returns how many were not revoked before.</summary>
+    Task<int> MarkSessionsRevokedAsync(
+        IReadOnlyCollection<string> ids,
+        DateTimeOffset revokedAt,
+        SessionRevocationAudit? audit,
+        CancellationToken cancellationToken);
 
     Task UpdateSessionsLastSeenAsync(
         IReadOnlyList<(string Id, DateTimeOffset LastSeenAt)> sessions,

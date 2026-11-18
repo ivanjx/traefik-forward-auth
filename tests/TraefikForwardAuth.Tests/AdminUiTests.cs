@@ -500,9 +500,21 @@ public sealed class AdminUiTests
     public async Task LogoutClearsCookieAndProtectsPagesAgain()
     {
         await using var environment = await AdminEnvironment.StartAsync();
-        await environment.LoginAsync();
+        var token = await environment.LoginAsync();
 
-        var logout = await environment.GetAsync("/logout");
+        var crossSite = await environment.GetAsync("/logout");
+
+        Assert.Equal(HttpStatusCode.NotFound, crossSite.StatusCode);
+        Assert.True(environment.Client.Cookies.Cookies.ContainsKey("_tfa_admin"));
+
+        var forged = await environment.PostFormAsync("/logout", new Dictionary<string, string>());
+
+        Assert.Equal(HttpStatusCode.BadRequest, forged.StatusCode);
+        Assert.True(environment.Client.Cookies.Cookies.ContainsKey("_tfa_admin"));
+
+        var logout = await environment.PostFormAsync(
+            "/logout",
+            new Dictionary<string, string> { ["__RequestVerificationToken"] = token });
 
         Assert.Equal(HttpStatusCode.SeeOther, logout.StatusCode);
         Assert.Equal("/auth/login", logout.Headers.Location!.ToString());
@@ -523,6 +535,164 @@ public sealed class AdminUiTests
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
         Assert.Contains("Not found", await response.Content.ReadAsStringAsync());
+    }
+
+    [Theory]
+    [InlineData("%2F%09%2Fevil.com")]
+    [InlineData("%2F%0A%2Fevil.com")]
+    [InlineData("%2F%2Fevil.com")]
+    [InlineData("%2F%5Cevil.com")]
+    [InlineData("https%3A%2F%2Fevil.com")]
+    public async Task LoginReturnUrlRejectsOffSiteTargets(string returnUrl)
+    {
+        await using var environment = await AdminEnvironment.StartAsync();
+
+        var callback = await environment.AttemptLoginAsync(returnUrl);
+
+        Assert.Equal(HttpStatusCode.SeeOther, callback.StatusCode);
+        Assert.Equal("/", callback.Headers.Location!.OriginalString);
+    }
+
+    [Fact]
+    public async Task AdminResponsesForbidFraming()
+    {
+        await using var environment = await AdminEnvironment.StartAsync();
+
+        var anonymous = await environment.GetAsync("/settings");
+
+        await environment.LoginAsync();
+        var page = await environment.GetAsync("/settings");
+
+        foreach (var response in new[] { anonymous, page })
+        {
+            Assert.Equal("DENY", response.Headers.GetValues("X-Frame-Options").Single());
+            Assert.Equal("frame-ancestors 'none'", response.Headers.GetValues("Content-Security-Policy").Single());
+        }
+    }
+
+    [Fact]
+    public async Task RevokeForEmailIgnoresCaseAndReportsCount()
+    {
+        await using var environment = await AdminEnvironment.StartAsync();
+        var token = await environment.LoginAsync();
+
+        await environment.Runtime.Sessions.CreateAsync(
+            SessionKind.ForwardAuth,
+            "User@Corp.com",
+            "google",
+            null,
+            null,
+            null,
+            TimeSpan.FromHours(1),
+            TestContext.Current.CancellationToken);
+
+        var revoked = await environment.PostFormAsync(
+            "/sessions/revoke-email",
+            new Dictionary<string, string> { ["email"] = "user@corp.com", ["__RequestVerificationToken"] = token });
+
+        Assert.Equal(HttpStatusCode.SeeOther, revoked.StatusCode);
+        Assert.Equal("/sessions?revoked=1", revoked.Headers.Location!.ToString());
+        Assert.Empty(environment.Runtime.Sessions.List(SessionKind.ForwardAuth));
+
+        var page = await environment.GetAsync("/sessions?revoked=1");
+        Assert.Contains("Revoked 1 session.", await page.Content.ReadAsStringAsync());
+
+        var none = await environment.PostFormAsync(
+            "/sessions/revoke-email",
+            new Dictionary<string, string> { ["email"] = "user@corp.com", ["__RequestVerificationToken"] = token });
+
+        Assert.Equal("/sessions?revoked=0", none.Headers.Location!.ToString());
+
+        var audit = await environment.Runtime.Admin.ListAuditAsync(50, TestContext.Current.CancellationToken);
+        var entry = Assert.Single(audit, candidate => candidate.Action == "session.revoke_email");
+        Assert.Contains("\"count\":1", entry.DiffJson);
+    }
+
+    [Fact]
+    public async Task StoredSecretIsNotReusedForChangedEndpoints()
+    {
+        await using var environment = await AdminEnvironment.StartAsync();
+        var token = await environment.LoginAsync();
+        var provider = environment.Provider;
+
+        Dictionary<string, string> Form(string secret, string userUrl) => new()
+        {
+            ["client_id"] = "client-id",
+            ["client_secret"] = secret,
+            ["auth_url"] = provider.LoginUrl,
+            ["token_url"] = provider.TokenUrl,
+            ["user_url"] = userUrl,
+            ["__RequestVerificationToken"] = token
+        };
+
+        var saved = await environment.PostFormAsync("/providers/generic-oauth", Form("stored-secret", provider.UserInfoUrl));
+        Assert.Equal(HttpStatusCode.SeeOther, saved.StatusCode);
+
+        var test = await environment.PostFormAsync("/providers/generic-oauth/test", Form("", "https://attacker.example/userinfo"));
+        Assert.Contains("Re-enter the client secret", await test.Content.ReadAsStringAsync());
+
+        var save = await environment.PostFormAsync("/providers/generic-oauth", Form("", "https://attacker.example/userinfo"));
+        var html = await save.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, save.StatusCode);
+        Assert.Contains("Re-enter the client secret", html);
+        Assert.Contains("Secret is set", html);
+
+        var unchanged = await environment.PostFormAsync("/providers/generic-oauth", Form("", provider.UserInfoUrl));
+        Assert.Equal(HttpStatusCode.SeeOther, unchanged.StatusCode);
+
+        var configuration = await environment.Runtime.Store.LoadConfigurationAsync(TestContext.Current.CancellationToken);
+        var stored = Assert.Single(configuration.Providers);
+        Assert.Equal("stored-secret", stored.ClientSecret);
+        Assert.Equal(provider.UserInfoUrl, stored.UserUrl);
+    }
+
+    [Fact]
+    public async Task AuditSkipsMissingTargetsAndRecordsCascadedAccessEntries()
+    {
+        await using var environment = await AdminEnvironment.StartAsync();
+        var token = await environment.LoginAsync();
+        var form = new Dictionary<string, string> { ["__RequestVerificationToken"] = token };
+
+        var missingSession = await environment.PostFormAsync("/sessions/does-not-exist/revoke", form);
+        Assert.Equal("/sessions?revoked=0", missingSession.Headers.Location!.ToString());
+
+        var missingProvider = await environment.PostFormAsync("/providers/oidc/delete", form);
+        Assert.Equal(HttpStatusCode.NotFound, missingProvider.StatusCode);
+
+        await environment.PostFormAsync(
+            "/rules/new",
+            new Dictionary<string, string>
+            {
+                ["name"] = "App",
+                ["enabled"] = "on",
+                ["action"] = "auth",
+                ["provider"] = "",
+                ["Conditions[0].Field"] = "Host",
+                ["Conditions[0].Operator"] = "Is",
+                ["Conditions[0].Values"] = "app.example.com",
+                ["__RequestVerificationToken"] = token
+            });
+
+        var rule = Assert.Single((await environment.Runtime.Store.LoadConfigurationAsync(TestContext.Current.CancellationToken)).Rules);
+
+        await environment.PostFormAsync(
+            "/access",
+            new Dictionary<string, string>
+            {
+                ["scope"] = rule.Id,
+                ["kind"] = "email",
+                ["value"] = "member@example.com",
+                ["__RequestVerificationToken"] = token
+            });
+
+        var deleted = await environment.PostFormAsync($"/rules/{rule.Id}/delete", form);
+        Assert.Equal(HttpStatusCode.SeeOther, deleted.StatusCode);
+
+        var audit = await environment.Runtime.Admin.ListAuditAsync(50, TestContext.Current.CancellationToken);
+
+        Assert.DoesNotContain(audit, entry => entry.Action is "session.revoke" or "provider.delete");
+        Assert.Contains("member@example.com", Assert.Single(audit, entry => entry.Action == "rule.delete").DiffJson);
     }
 
     private sealed class AdminEnvironment : IAsyncDisposable
@@ -593,9 +763,9 @@ public sealed class AdminUiTests
             return new AdminEnvironment(dataDir, provider, app, runtime);
         }
 
-        public async Task<HttpResponseMessage> AttemptLoginAsync()
+        public async Task<HttpResponseMessage> AttemptLoginAsync(string returnUrl = "/settings")
         {
-            var login = await GetAsync("/auth/login?returnUrl=/settings");
+            var login = await GetAsync("/auth/login?returnUrl=" + returnUrl);
 
             Assert.Equal(HttpStatusCode.TemporaryRedirect, login.StatusCode);
             Assert.True(Client.Cookies.Cookies.ContainsKey("_tfa_admin_state"));

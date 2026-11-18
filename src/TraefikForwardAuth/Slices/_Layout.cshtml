@@ -21,7 +21,10 @@
             </a>
             <div class="account">
                 <span>@Model.AdminEmail</span>
-                <a href="/logout">Log out</a>
+                <form method="post" action="/logout">
+                    <input type="hidden" name="__RequestVerificationToken" value="@Model.AntiforgeryToken">
+                    <button type="submit" class="link">Log out</button>
+                </form>
             </div>
         </div>
         <nav class="site-nav">

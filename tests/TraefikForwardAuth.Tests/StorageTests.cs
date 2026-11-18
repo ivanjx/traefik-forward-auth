@@ -56,6 +56,25 @@ public sealed class StorageTests
     }
 
     [Fact]
+    public async Task ConcurrentInitializeOnSameFileAppliesMigrationsOnce()
+    {
+        await WithStoreAsync(async (store, logger) =>
+        {
+            await using var second = new SqliteStore(store.DatabasePath, logger);
+
+            await Task.WhenAll(
+                Task.Run(() => store.InitializeAsync(CancellationToken.None)),
+                Task.Run(() => second.InitializeAsync(CancellationToken.None)));
+
+            await using var connection = new SqliteConnection($"Data Source={store.DatabasePath};Pooling=False");
+            await connection.OpenAsync();
+
+            Assert.Equal(2L, await ScalarAsync(connection, "PRAGMA user_version;"));
+            Assert.Equal(1L, await ScalarAsync(connection, "SELECT COUNT(*) FROM settings;"));
+        });
+    }
+
+    [Fact]
     public async Task InitializeIsIdempotent()
     {
         await WithStoreAsync(async store =>
@@ -417,7 +436,7 @@ public sealed class StorageTests
             Assert.Equal(alice.Id, Assert.Single(aliceForwardOnly).Id);
 
             var revokedAt = now.AddMinutes(1);
-            await store.MarkSessionsRevokedAsync([alice.Id], revokedAt, CancellationToken.None);
+            Assert.Equal(1, await store.MarkSessionsRevokedAsync([alice.Id], revokedAt, audit: null, CancellationToken.None));
 
             Assert.DoesNotContain(
                 await store.ListSessionsAsync(null, null, CancellationToken.None),
@@ -427,7 +446,7 @@ public sealed class StorageTests
                 session => session.Id == alice.Id);
             Assert.Equal(revokedAt, revoked.RevokedAt);
 
-            await store.MarkSessionsRevokedAsync([alice.Id], revokedAt.AddMinutes(5), CancellationToken.None);
+            Assert.Equal(0, await store.MarkSessionsRevokedAsync([alice.Id], revokedAt.AddMinutes(5), audit: null, CancellationToken.None));
             revoked = Assert.Single(
                 await store.LoadSessionsAsync(CancellationToken.None),
                 session => session.Id == alice.Id);
@@ -471,8 +490,8 @@ public sealed class StorageTests
                 await store.InsertSessionAsync(session, CancellationToken.None);
             }
 
-            await store.MarkSessionsRevokedAsync([revokedBefore.Id], cutoff.AddSeconds(-1), CancellationToken.None);
-            await store.MarkSessionsRevokedAsync([revokedAfter.Id], cutoff.AddSeconds(1), CancellationToken.None);
+            await store.MarkSessionsRevokedAsync([revokedBefore.Id], cutoff.AddSeconds(-1), audit: null, CancellationToken.None);
+            await store.MarkSessionsRevokedAsync([revokedAfter.Id], cutoff.AddSeconds(1), audit: null, CancellationToken.None);
 
             Assert.Equal(2, await store.DeleteSessionsEndedBeforeAsync(cutoff, CancellationToken.None));
             Assert.Equal(

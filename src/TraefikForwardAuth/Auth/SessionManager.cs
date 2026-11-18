@@ -164,23 +164,31 @@ public sealed class SessionManager : ISessionStore, IAsyncDisposable
         }
     }
 
-    public async Task RevokeAsync(string id, CancellationToken cancellationToken)
+    /// <summary>Revokes one session; returns false when it did not exist or was already revoked.</summary>
+    public async Task<bool> RevokeAsync(string id, SessionRevocationAudit? audit, CancellationToken cancellationToken)
     {
         var now = _timeProvider.GetUtcNow();
 
         // Mark in the database even when the session is not cached; the operation is idempotent.
-        await _repository.MarkSessionsRevokedAsync([id], now, cancellationToken);
+        var revoked = await _repository.MarkSessionsRevokedAsync([id], now, audit, cancellationToken);
         _sessions.TryRemove(id, out _);
         _logger.Debug("Revoked session", ("id", id));
+
+        return revoked > 0;
     }
 
-    public async Task<int> RevokeForEmailAsync(string email, SessionKind kind, CancellationToken cancellationToken)
+    /// <summary>Revokes active sessions of <paramref name="kind"/> whose email matches case-insensitively.</summary>
+    public async Task<int> RevokeForEmailAsync(
+        string email,
+        SessionKind kind,
+        SessionRevocationAudit? audit,
+        CancellationToken cancellationToken)
     {
         var now = _timeProvider.GetUtcNow();
         var ids = _sessions.Values
             .Where(session =>
                 session.Kind == kind &&
-                string.Equals(session.Email, email, StringComparison.Ordinal) &&
+                string.Equals(session.Email, email, StringComparison.OrdinalIgnoreCase) &&
                 session.IsActive(now))
             .Select(session => session.Id)
             .ToArray();
@@ -190,16 +198,16 @@ public sealed class SessionManager : ISessionStore, IAsyncDisposable
             return 0;
         }
 
-        await _repository.MarkSessionsRevokedAsync(ids, now, cancellationToken);
+        var revoked = await _repository.MarkSessionsRevokedAsync(ids, now, audit, cancellationToken);
 
         foreach (var id in ids)
         {
             _sessions.TryRemove(id, out _);
         }
 
-        _logger.Debug("Revoked sessions for email", ("kind", kind.ToString()), ("count", ids.Length));
+        _logger.Debug("Revoked sessions for email", ("kind", kind.ToString()), ("count", revoked));
 
-        return ids.Length;
+        return revoked;
     }
 
     public async Task RevokeAllAsync(SessionKind? kind, CancellationToken cancellationToken)
@@ -215,7 +223,7 @@ public sealed class SessionManager : ISessionStore, IAsyncDisposable
             return;
         }
 
-        await _repository.MarkSessionsRevokedAsync(ids, now, cancellationToken);
+        await _repository.MarkSessionsRevokedAsync(ids, now, audit: null, cancellationToken);
 
         foreach (var id in ids)
         {

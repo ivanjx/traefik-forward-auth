@@ -124,23 +124,16 @@ public static class AdminForms
         return new ParsedSettings(settings, errors);
     }
 
-    public static ProviderDefinition ParseProvider(
-        string name,
-        IFormCollection form,
-        ProviderDefinition? existing)
-    {
-        var secret = Text(form, "client_secret");
-
-        if (secret.Length == 0 && existing is not null)
-        {
-            secret = existing.ClientSecret;
-        }
-
-        return new ProviderDefinition
+    /// <summary>
+    /// Parses the submitted provider. A blank client secret stays blank here; <c>AdminService</c>
+    /// decides whether the stored secret may be reused.
+    /// </summary>
+    public static ProviderDefinition ParseProvider(string name, IFormCollection form) =>
+        new()
         {
             Name = name,
             ClientId = Text(form, "client_id"),
-            ClientSecret = secret,
+            ClientSecret = Text(form, "client_secret"),
             IssuerUrl = OptionalText(form, "issuer_url"),
             AuthUrl = OptionalText(form, "auth_url"),
             TokenUrl = OptionalText(form, "token_url"),
@@ -150,7 +143,6 @@ public static class AdminForms
             TokenStyle = Text(form, "token_style") is "query" ? "query" : "header",
             Resource = OptionalText(form, "resource")
         };
-    }
 
     public static ParsedConditions ParseConditions(IFormCollection form)
     {

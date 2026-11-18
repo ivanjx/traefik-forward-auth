@@ -308,7 +308,7 @@ public sealed class ForwardAuthMiddleware
         {
             try
             {
-                await _sessions.RevokeAsync(identity.SessionId, context.RequestAborted);
+                await _sessions.RevokeAsync(identity.SessionId, audit: null, context.RequestAborted);
             }
             catch (Exception exception)
             {

@@ -101,8 +101,20 @@ a:hover { text-decoration: underline; }
     color: var(--muted);
 }
 
-.account a { color: var(--muted); }
-.account a:hover { color: var(--text); }
+.account a,
+.account button.link { color: var(--muted); }
+.account a:hover,
+.account button.link:hover { color: var(--text); }
+
+.account button.link {
+    padding: 0;
+    border: 0;
+    background: none;
+    font: inherit;
+    cursor: pointer;
+}
+
+.account button.link:hover { background: none; text-decoration: underline; }
 
 .site-nav {
     display: flex;

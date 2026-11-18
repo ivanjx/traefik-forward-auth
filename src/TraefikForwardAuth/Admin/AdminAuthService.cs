@@ -209,8 +209,7 @@ public sealed class AdminAuthService
 
         _logger.Info("Admin signed in", ("user", user.Email));
 
-        context.Response.StatusCode = StatusCodes.Status303SeeOther;
-        context.Response.Headers.Location = returnUrl;
+        await Http.GoHttpCompat.RedirectAsync(context, returnUrl, StatusCodes.Status303SeeOther);
     }
 
     public void SignOut(HttpContext context)
@@ -247,12 +246,18 @@ public sealed class AdminAuthService
         return true;
     }
 
+    /// <summary>
+    /// Accepts only a local absolute path. Browsers strip tab, CR and LF while parsing URLs, so a
+    /// value like <c>/\t/evil.com</c> would become the protocol-relative <c>//evil.com</c>.
+    /// </summary>
     private static string SafeReturnUrl(string? candidate)
     {
         if (string.IsNullOrEmpty(candidate) ||
             !candidate.StartsWith('/') ||
             candidate.StartsWith("//", StringComparison.Ordinal) ||
-            candidate.Contains('\\'))
+            candidate.Contains('\\') ||
+            candidate.Any(char.IsControl) ||
+            !Uri.TryCreate(candidate, UriKind.Relative, out _))
         {
             return "/";
         }

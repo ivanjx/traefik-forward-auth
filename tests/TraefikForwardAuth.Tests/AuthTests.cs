@@ -385,7 +385,7 @@ public sealed class AuthTests
         var first = await CreateForwardAuthAsync(manager);
         var second = await CreateForwardAuthAsync(manager, "bob@example.com");
 
-        await manager.RevokeAsync(first.Id, CancellationToken.None);
+        Assert.True(await manager.RevokeAsync(first.Id, audit: null, CancellationToken.None));
 
         Assert.Null(manager.Get(first.Id));
         Assert.False(manager.TryGetActive(first.Id, time.Now, out _));
@@ -393,12 +393,12 @@ public sealed class AuthTests
         Assert.Single(repository.Revocations);
         Assert.Equal([first.Id], repository.Revocations[0].Ids);
 
-        await manager.RevokeAsync("missing", CancellationToken.None);
+        Assert.False(await manager.RevokeAsync("missing", audit: null, CancellationToken.None));
         Assert.Equal(2, repository.Revocations.Count);
     }
 
     [Fact]
-    public async Task RevokeForEmailOnlyMatchesKindAndEmail()
+    public async Task RevokeForEmailOnlyMatchesKindAndEmailIgnoringCase()
     {
         var time = new MutableTimeProvider();
         var repository = new FakeSessionRepository();
@@ -415,7 +415,7 @@ public sealed class AuthTests
             CancellationToken.None);
         var other = await CreateForwardAuthAsync(manager, "bob@example.com");
 
-        var count = await manager.RevokeForEmailAsync("alice@example.com", SessionKind.ForwardAuth, CancellationToken.None);
+        var count = await manager.RevokeForEmailAsync("ALICE@Example.com", SessionKind.ForwardAuth, audit: null, CancellationToken.None);
 
         Assert.Equal(1, count);
         Assert.Single(repository.Revocations);
@@ -423,7 +423,7 @@ public sealed class AuthTests
         Assert.Null(manager.Get(forwardAuth.Id));
         Assert.True(manager.TryGetActive(admin.Id, time.Now, out _));
         Assert.True(manager.TryGetActive(other.Id, time.Now, out _));
-        Assert.Equal(0, await manager.RevokeForEmailAsync("nobody@example.com", SessionKind.ForwardAuth, CancellationToken.None));
+        Assert.Equal(0, await manager.RevokeForEmailAsync("nobody@example.com", SessionKind.ForwardAuth, audit: null, CancellationToken.None));
     }
 
     [Fact]
@@ -694,14 +694,26 @@ public sealed class AuthTests
             return Task.CompletedTask;
         }
 
-        public Task MarkSessionsRevokedAsync(
+        public Task<int> MarkSessionsRevokedAsync(
             IReadOnlyCollection<string> ids,
             DateTimeOffset revokedAt,
+            SessionRevocationAudit? audit,
             CancellationToken cancellationToken)
         {
             Revocations.Add((ids.ToArray(), revokedAt));
 
-            return Task.CompletedTask;
+            var revoked = 0;
+
+            for (var i = 0; i < Sessions.Count; i++)
+            {
+                if (Sessions[i].RevokedAt is null && ids.Contains(Sessions[i].Id))
+                {
+                    Sessions[i] = Sessions[i] with { RevokedAt = revokedAt };
+                    revoked++;
+                }
+            }
+
+            return Task.FromResult(revoked);
         }
 
         public Task UpdateSessionsLastSeenAsync(

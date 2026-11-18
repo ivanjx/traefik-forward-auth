@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.AspNetCore.Http;
 using RazorSlices;
 using TraefikForwardAuth.Auth;
@@ -26,6 +27,10 @@ internal sealed class AdminPipeline
         var cancellationToken = context.RequestAborted;
         var path = context.Request.Path.Value ?? "/";
         var method = context.Request.Method;
+
+        // Every admin page carries one-click POST forms; never allow it to be framed (clickjacking).
+        context.Response.Headers.XFrameOptions = "DENY";
+        context.Response.Headers.ContentSecurityPolicy = "frame-ancestors 'none'";
 
         try
         {
@@ -116,7 +121,8 @@ internal sealed class AdminPipeline
 
         if (path == "/logout")
         {
-            if (!HttpMethods.IsGet(method))
+            // POST only, so the antiforgery check above applies and other sites cannot force a logout.
+            if (!HttpMethods.IsPost(method))
             {
                 await RenderNotFoundAsync(context, identity);
                 return;
@@ -564,7 +570,8 @@ internal sealed class AdminPipeline
         {
             Layout = Layout(identity, "Provider " + name, "providers", error ?? flash, error is not null || isError),
             Provider = submitted,
-            Exists = existing is not null
+            Exists = existing is not null,
+            HasStoredSecret = existing?.HasSecret == true
         };
 
         await RenderAsync(context, ProviderEdit.Create(model));
@@ -590,9 +597,7 @@ internal sealed class AdminPipeline
             return;
         }
 
-        var configuration = await _runtime.Admin.GetConfigurationAsync(cancellationToken);
-        var existing = configuration.Providers.FirstOrDefault(provider => provider.Name == name);
-        var provider = AdminForms.ParseProvider(name, form, existing);
+        var provider = AdminForms.ParseProvider(name, form);
 
         try
         {
@@ -648,27 +653,17 @@ internal sealed class AdminPipeline
         }
 
         var form = await ReadFormAsync(context, cancellationToken);
-        var message = "";
+        ProviderDefinition provider;
 
         if (form is null)
         {
-            message = "The provider form could not be read.";
+            var configuration = await _runtime.Admin.GetConfigurationAsync(cancellationToken);
+            provider = configuration.Providers.FirstOrDefault(candidate => candidate.Name == name)
+                ?? new ProviderDefinition { Name = name };
         }
-
-        var configuration = await _runtime.Admin.GetConfigurationAsync(cancellationToken);
-        var existing = configuration.Providers.FirstOrDefault(provider => provider.Name == name);
-        var provider = form is null
-            ? existing ?? new ProviderDefinition { Name = name }
-            : AdminForms.ParseProvider(name, form, existing);
-
-        var errors = provider.ValidationErrors();
-
-        if (errors.Count > 0)
+        else
         {
-            await RenderPartialAsync(
-                context,
-                ProviderTest.Create(new ProviderTestModel(name, false, string.Join(" ", errors))));
-            return;
+            provider = AdminForms.ParseProvider(name, form);
         }
 
         var result = await _runtime.Admin.TestProviderAsync(provider, cancellationToken);
@@ -676,7 +671,12 @@ internal sealed class AdminPipeline
             ? (result.Success ? "Connected." : "Connection failed.")
             : result.Message;
 
-        await RenderPartialAsync(context, ProviderTest.Create(new ProviderTestModel(name, result.Success, text + message)));
+        if (form is null)
+        {
+            text += "The provider form could not be read.";
+        }
+
+        await RenderPartialAsync(context, ProviderTest.Create(new ProviderTestModel(name, result.Success, text)));
     }
 
     private async Task RenderRulesAsync(
@@ -1268,11 +1268,11 @@ internal sealed class AdminPipeline
         }
 
         var kind = admin ? SessionKind.Admin : SessionKind.ForwardAuth;
-        await _runtime.Admin.RevokeSessionsForEmailAsync(email, kind, identity.Email, cancellationToken);
+        var count = await _runtime.Admin.RevokeSessionsForEmailAsync(email, kind, identity.Email, cancellationToken);
 
         await GoHttpCompat.RedirectAsync(
             context,
-            (admin ? "/admin-sessions" : "/sessions") + "?saved=1",
+            (admin ? "/admin-sessions" : "/sessions") + "?revoked=" + count.ToString(CultureInfo.InvariantCulture),
             StatusCodes.Status303SeeOther);
     }
 
@@ -1283,7 +1283,7 @@ internal sealed class AdminPipeline
         bool admin,
         CancellationToken cancellationToken)
     {
-        await _runtime.Admin.RevokeSessionAsync(id, identity.Email, cancellationToken);
+        var revoked = await _runtime.Admin.RevokeSessionAsync(id, identity.Email, cancellationToken);
 
         if (admin && id == identity.SessionId)
         {
@@ -1294,7 +1294,7 @@ internal sealed class AdminPipeline
 
         await GoHttpCompat.RedirectAsync(
             context,
-            (admin ? "/admin-sessions" : "/sessions") + "?saved=1",
+            (admin ? "/admin-sessions" : "/sessions") + (revoked ? "?saved=1" : "?revoked=0"),
             StatusCodes.Status303SeeOther);
     }
 
@@ -1348,6 +1348,18 @@ internal sealed class AdminPipeline
         if (saved == "1")
         {
             return ("Saved.", false);
+        }
+
+        var revokedText = context.Request.Query["revoked"].ToString();
+
+        if (int.TryParse(revokedText, NumberStyles.None, CultureInfo.InvariantCulture, out var revoked))
+        {
+            return revoked switch
+            {
+                0 => ("No active sessions were revoked.", true),
+                1 => ("Revoked 1 session.", false),
+                _ => ($"Revoked {revoked} sessions.", false)
+            };
         }
 
         return (null, false);

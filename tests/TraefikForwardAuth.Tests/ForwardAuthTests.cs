@@ -112,7 +112,7 @@ public sealed class ForwardAuthTests
         {
             var session = await CreateSessionAsync(sessions);
             var cookie = AuthCookie(settings, Host, Email, session.Id, session.ExpiresAt);
-            await sessions.RevokeAsync(session.Id, CancellationToken.None);
+            await sessions.RevokeAsync(session.Id, audit: null, CancellationToken.None);
 
             var response = await client.SendAsync(Request("/private", cookies: [("_forward_auth", cookie)]));
 
@@ -875,20 +875,24 @@ public sealed class ForwardAuthTests
             return Task.CompletedTask;
         }
 
-        public Task MarkSessionsRevokedAsync(
+        public Task<int> MarkSessionsRevokedAsync(
             IReadOnlyCollection<string> ids,
             DateTimeOffset revokedAt,
+            SessionRevocationAudit? audit,
             CancellationToken cancellationToken)
         {
+            var revoked = 0;
+
             for (var i = 0; i < _sessions.Count; i++)
             {
-                if (ids.Contains(_sessions[i].Id))
+                if (_sessions[i].RevokedAt is null && ids.Contains(_sessions[i].Id))
                 {
                     _sessions[i] = _sessions[i] with { RevokedAt = revokedAt };
+                    revoked++;
                 }
             }
 
-            return Task.CompletedTask;
+            return Task.FromResult(revoked);
         }
 
         public Task UpdateSessionsLastSeenAsync(

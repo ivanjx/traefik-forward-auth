@@ -47,6 +47,9 @@ public sealed record ProviderEditPageModel
     public required ProviderDefinition Provider { get; init; }
 
     public required bool Exists { get; init; }
+
+    /// <summary>Whether a secret is stored; the submitted <see cref="Provider"/> carries a blank secret after a failed save.</summary>
+    public required bool HasStoredSecret { get; init; }
 }
 
 public sealed record ProviderTestModel(string ProviderName, bool Success, string Message);

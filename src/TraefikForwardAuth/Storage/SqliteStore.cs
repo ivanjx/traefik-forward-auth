@@ -18,6 +18,9 @@ public sealed record AuditEntry(
     string Entity,
     string DiffJson);
 
+/// <summary>Audit diff for a rule deletion: the rule plus the access entries deleted with it.</summary>
+public sealed record RuleDeletionDiff(RuleDefinition Rule, IReadOnlyList<AccessEntry> AccessEntries);
+
 public sealed class SqliteStore : ISessionRepository, IAsyncDisposable
 {
     private const int MaxAuditLimit = 1000;
@@ -41,12 +44,7 @@ public sealed class SqliteStore : ISessionRepository, IAsyncDisposable
         await _gate.WaitAsync(cancellationToken);
         try
         {
-            var directory = Path.GetDirectoryName(Path.GetFullPath(DatabasePath));
-
-            if (!string.IsNullOrEmpty(directory))
-            {
-                Directory.CreateDirectory(directory);
-            }
+            PrepareDatabaseFiles();
 
             await using var connection = await OpenConnectionAsync(cancellationToken);
 
@@ -55,7 +53,6 @@ public sealed class SqliteStore : ISessionRepository, IAsyncDisposable
             await ExecuteAsync(connection, null, "PRAGMA busy_timeout=5000;", cancellationToken);
 
             await ApplyMigrationsAsync(connection, cancellationToken);
-            RestrictFilePermissions();
 
             await InsertDefaultSettingsAsync(connection, cancellationToken);
         }
@@ -317,7 +314,8 @@ public sealed class SqliteStore : ISessionRepository, IAsyncDisposable
             await using var connection = await OpenConnectionAsync(cancellationToken);
             await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
 
-            var old = await ReadProviderAsync(connection, transaction, name, cancellationToken);
+            var old = await ReadProviderAsync(connection, transaction, name, cancellationToken)
+                ?? throw new KeyNotFoundException($"Provider '{name}' was not found.");
 
             await ExecuteAsync(
                 connection,
@@ -328,9 +326,9 @@ public sealed class SqliteStore : ISessionRepository, IAsyncDisposable
 
             var diff = new Dictionary<string, string?>(StringComparer.Ordinal)
             {
-                ["name"] = old?.Name ?? name,
-                ["client_id"] = old?.ClientId ?? "",
-                ["client_secret"] = old is null || old.ClientSecret.Length == 0 ? "unset" : "set"
+                ["name"] = old.Name,
+                ["client_id"] = old.ClientId,
+                ["client_secret"] = old.ClientSecret.Length == 0 ? "unset" : "set"
             };
 
             await AppendAuditAsync(
@@ -469,6 +467,8 @@ public sealed class SqliteStore : ISessionRepository, IAsyncDisposable
             var old = await ReadRuleAsync(connection, transaction, id, cancellationToken)
                 ?? throw new KeyNotFoundException($"Rule '{id}' was not found.");
 
+            var accessEntries = await ReadAccessEntriesAsync(connection, transaction, id, cancellationToken);
+
             await ExecuteAsync(
                 connection,
                 transaction,
@@ -489,7 +489,7 @@ public sealed class SqliteStore : ISessionRepository, IAsyncDisposable
                 adminEmail,
                 "rule.delete",
                 id,
-                SerializeRuleDiff(old),
+                SerializeRuleDeletionDiff(new RuleDeletionDiff(old, accessEntries)),
                 cancellationToken);
 
             await transaction.CommitAsync(cancellationToken);
@@ -714,36 +714,6 @@ public sealed class SqliteStore : ISessionRepository, IAsyncDisposable
         }
     }
 
-    public async Task AppendAuditAsync(
-        string adminEmail,
-        string action,
-        string entity,
-        string diffJson,
-        CancellationToken cancellationToken)
-    {
-        await _gate.WaitAsync(cancellationToken);
-        try
-        {
-            await using var connection = await OpenConnectionAsync(cancellationToken);
-            await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
-
-            await AppendAuditAsync(
-                connection,
-                transaction,
-                adminEmail,
-                action,
-                entity,
-                diffJson,
-                cancellationToken);
-
-            await transaction.CommitAsync(cancellationToken);
-        }
-        finally
-        {
-            _gate.Release();
-        }
-    }
-
     public async Task<IReadOnlyList<AuditEntry>> ListAuditAsync(int limit, CancellationToken cancellationToken)
     {
         var clamped = Math.Clamp(limit, 1, MaxAuditLimit);
@@ -888,16 +858,17 @@ public sealed class SqliteStore : ISessionRepository, IAsyncDisposable
         }
     }
 
-    public async Task MarkSessionsRevokedAsync(
+    public async Task<int> MarkSessionsRevokedAsync(
         IReadOnlyCollection<string> ids,
         DateTimeOffset revokedAt,
+        SessionRevocationAudit? audit,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(ids);
 
         if (ids.Count == 0)
         {
-            return;
+            return 0;
         }
 
         await _gate.WaitAsync(cancellationToken);
@@ -907,6 +878,7 @@ public sealed class SqliteStore : ISessionRepository, IAsyncDisposable
             await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
 
             var timestamp = FormatTimestamp(revokedAt);
+            var revoked = 0;
 
             foreach (var chunk in ids.Distinct(StringComparer.Ordinal).Chunk(SessionChunkSize))
             {
@@ -932,10 +904,24 @@ public sealed class SqliteStore : ISessionRepository, IAsyncDisposable
                 command.CommandText = builder.ToString();
                 command.Parameters.AddWithValue("$revoked_at", timestamp);
 
-                await command.ExecuteNonQueryAsync(cancellationToken);
+                revoked += await command.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            if (audit is not null && revoked > 0)
+            {
+                await AppendAuditAsync(
+                    connection,
+                    transaction,
+                    audit.AdminEmail,
+                    audit.Action,
+                    audit.Entity,
+                    audit.Diff(revoked),
+                    cancellationToken);
             }
 
             await transaction.CommitAsync(cancellationToken);
+
+            return revoked;
         }
         finally
         {
@@ -1037,16 +1023,16 @@ public sealed class SqliteStore : ISessionRepository, IAsyncDisposable
 
     private async Task ApplyMigrationsAsync(SqliteConnection connection, CancellationToken cancellationToken)
     {
-        var currentVersion = await GetUserVersionAsync(connection, cancellationToken);
-
         foreach (var migration in GetMigrationResources())
         {
-            if (migration.Version <= currentVersion)
+            // BEGIN IMMEDIATE takes the write lock before the version is read, so a second instance
+            // starting on the same file waits and then sees the migration as already applied.
+            await using var transaction = connection.BeginTransaction(deferred: false);
+
+            if (migration.Version <= await GetUserVersionAsync(connection, transaction, cancellationToken))
             {
                 continue;
             }
-
-            await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
 
             await ExecuteAsync(
                 connection,
@@ -1061,7 +1047,6 @@ public sealed class SqliteStore : ISessionRepository, IAsyncDisposable
                 cancellationToken);
 
             await transaction.CommitAsync(cancellationToken);
-            currentVersion = migration.Version;
         }
     }
 
@@ -1117,9 +1102,11 @@ public sealed class SqliteStore : ISessionRepository, IAsyncDisposable
 
     private static async Task<long> GetUserVersionAsync(
         SqliteConnection connection,
+        SqliteTransaction transaction,
         CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
         command.CommandText = "PRAGMA user_version;";
         var result = await command.ExecuteScalarAsync(cancellationToken);
 
@@ -1164,14 +1151,54 @@ public sealed class SqliteStore : ISessionRepository, IAsyncDisposable
         await transaction.CommitAsync(cancellationToken);
     }
 
-    private void RestrictFilePermissions()
+    /// <summary>
+    /// Creates the data directory and database file as owner-only before the first connection opens.
+    /// SQLite creates the <c>-wal</c> and <c>-shm</c> files with the database file's permissions, and
+    /// they hold the signing secret too, so the main file must already be private at that point.
+    /// </summary>
+    private void PrepareDatabaseFiles()
     {
-        if (OperatingSystem.IsWindows() || !File.Exists(DatabasePath))
+        var directory = Path.GetDirectoryName(Path.GetFullPath(DatabasePath));
+
+        if (OperatingSystem.IsWindows())
         {
+            if (!string.IsNullOrEmpty(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+
             return;
         }
 
-        File.SetUnixFileMode(DatabasePath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        const UnixFileMode privateFile = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+
+        if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+        {
+            Directory.CreateDirectory(directory, privateFile | UnixFileMode.UserExecute);
+        }
+
+        // Opened only when missing: closing a descriptor drops the process's SQLite fcntl locks on the file.
+        if (!File.Exists(DatabasePath))
+        {
+            using var _ = new FileStream(
+                DatabasePath,
+                new FileStreamOptions
+                {
+                    Mode = FileMode.OpenOrCreate,
+                    Access = FileAccess.ReadWrite,
+                    Share = FileShare.ReadWrite,
+                    UnixCreateMode = privateFile
+                });
+        }
+
+        // Existing deployments may already have files created with the default umask.
+        foreach (var path in new[] { DatabasePath, DatabasePath + "-wal", DatabasePath + "-shm" })
+        {
+            if (File.Exists(path))
+            {
+                File.SetUnixFileMode(path, privateFile);
+            }
+        }
     }
 
     private static async Task<PolicySettings?> ReadSettingsRowAsync(
@@ -1422,6 +1449,34 @@ public sealed class SqliteStore : ISessionRepository, IAsyncDisposable
         return entries;
     }
 
+    private static async Task<IReadOnlyList<AccessEntry>> ReadAccessEntriesAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        string scope,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText =
+            """
+            SELECT id, scope, kind, value, role
+            FROM access_entries
+            WHERE scope = $scope
+            ORDER BY created_at ASC, id ASC;
+            """;
+        command.Parameters.AddWithValue("$scope", scope);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        var entries = new List<AccessEntry>();
+
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            entries.Add(ReadAccessEntry(reader));
+        }
+
+        return entries;
+    }
+
     private static async Task<AccessEntry?> ReadAccessEntryAsync(
         SqliteConnection connection,
         SqliteTransaction transaction,
@@ -1573,6 +1628,9 @@ public sealed class SqliteStore : ISessionRepository, IAsyncDisposable
 
     private static string SerializeRuleDiff(RuleDefinition rule) =>
         JsonSerializer.Serialize(rule, typeof(RuleDefinition), AppJsonContext.Default);
+
+    private static string SerializeRuleDeletionDiff(RuleDeletionDiff diff) =>
+        JsonSerializer.Serialize(diff, typeof(RuleDeletionDiff), AppJsonContext.Default);
 
     private static string SerializeAccessDiff(AccessEntry entry) =>
         JsonSerializer.Serialize(entry, typeof(AccessEntry), AppJsonContext.Default);

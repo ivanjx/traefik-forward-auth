@@ -26,12 +26,16 @@
             <div class="field">
                 <label for="client_secret">
                     Client secret
-                    @if (Model.Exists && Model.Provider.HasSecret)
+                    @if (Model.HasStoredSecret)
                     {
                         <span class="pill ok">Secret is set</span>
                     }
                 </label>
-                <input id="client_secret" type="password" name="client_secret" value="" autocomplete="new-password" placeholder="@(Model.Exists && Model.Provider.HasSecret ? "Leave blank to keep the current secret" : "")">
+                <input id="client_secret" type="password" name="client_secret" value="" autocomplete="new-password" placeholder="@(Model.HasStoredSecret ? "Leave blank to keep the current secret" : "")">
+                @if (Model.HasStoredSecret && Model.Provider.Name != ProviderDefinition.Google)
+                {
+                    <span class="hint">Re-enter it when changing the issuer, token or user info URL.</span>
+                }
             </div>
         </div>
     </section>

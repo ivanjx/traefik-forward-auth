@@ -64,6 +64,10 @@ public sealed record ProviderDefinition
 
     public bool HasSecret => !string.IsNullOrEmpty(ClientSecret);
 
+    /// <summary>Whether <paramref name="other"/> sends the client secret to the same URLs as this definition.</summary>
+    public bool HasSameSecretEndpoints(ProviderDefinition other) =>
+        IssuerUrl == other.IssuerUrl && TokenUrl == other.TokenUrl && UserUrl == other.UserUrl;
+
     public IReadOnlyList<string> ValidationErrors()
     {
         var errors = new List<string>();

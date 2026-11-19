@@ -148,7 +148,45 @@ public sealed class ForwardAuthMiddleware
         context.Response.StatusCode = StatusCodes.Status200OK;
         _sessions.Touch(identity.SessionId);
 
-        return Task.CompletedTask;
+        return RenewSessionAsync(context, settings, domain, identity, session);
+    }
+
+    /// <summary>
+    /// Slides the session expiry when less than half of the lifetime is left and re-issues the auth cookie
+    /// whenever it would expire before the session does. The cookie is re-issued on later requests too, so a
+    /// response that Traefik did not forward to the browser is retried instead of leaving a stale cookie.
+    /// </summary>
+    private async Task RenewSessionAsync(
+        HttpContext context,
+        PolicySettings settings,
+        string domain,
+        AuthCookieIdentity identity,
+        SessionRecord session)
+    {
+        var renewed = await _sessions.RenewAsync(identity.SessionId, settings.Lifetime, context.RequestAborted);
+
+        if (renewed is not null)
+        {
+            session = renewed;
+        }
+
+        if (session.ExpiresAt.ToUnixTimeSeconds() <= identity.ExpiresAt.ToUnixTimeSeconds())
+        {
+            return;
+        }
+
+        GoHttpCompat.AppendCookie(
+            context,
+            settings.CookieName,
+            CookieService.CreateAuthCookieValue(
+                settings.SigningSecret,
+                domain,
+                identity.Email,
+                session.Id,
+                session.ExpiresAt),
+            domain,
+            session.ExpiresAt,
+            !settings.InsecureCookie);
     }
 
     private Task HandleCallbackAsync(HttpContext context, ForwardedRequest forwarded, PolicySnapshot snapshot)

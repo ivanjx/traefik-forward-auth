@@ -75,6 +75,8 @@ public sealed record FieldOption(string Value, string Label);
 
 public sealed record OperatorOption(string Value, string Label);
 
+public sealed record LifetimeUnit(string Value, string Label, long Seconds);
+
 public sealed record ConditionRowModel
 {
     public required int Index { get; init; }
@@ -198,6 +200,33 @@ public static class AdminUi
 
     public static readonly IReadOnlyList<string> ProviderTypes =
         [ProviderDefinition.Google, ProviderDefinition.GitHub, ProviderDefinition.Oidc, ProviderDefinition.GenericOAuth];
+
+    /// <summary>Units offered for the session lifetime, smallest first.</summary>
+    public static readonly IReadOnlyList<LifetimeUnit> LifetimeUnits =
+    [
+        new("seconds", "Seconds", 1),
+        new("minutes", "Minutes", 60),
+        new("hours", "Hours", 3600),
+        new("days", "Days", 86400)
+    ];
+
+    /// <summary>Splits a lifetime into the largest unit that represents it exactly, for display in the settings form.</summary>
+    public static (long Value, string Unit) SplitLifetime(TimeSpan lifetime)
+    {
+        var seconds = (long)lifetime.TotalSeconds;
+
+        for (var i = LifetimeUnits.Count - 1; i > 0; i--)
+        {
+            var unit = LifetimeUnits[i];
+
+            if (seconds > 0 && seconds % unit.Seconds == 0)
+            {
+                return (seconds / unit.Seconds, unit.Value);
+            }
+        }
+
+        return (seconds, LifetimeUnits[0].Value);
+    }
 
     public static IReadOnlyList<OperatorOption> OperatorsFor(ConditionField field) => field switch
     {

@@ -965,6 +965,29 @@ public sealed class SqliteStore : ISessionRepository, IAsyncDisposable
         }
     }
 
+    public async Task UpdateSessionExpiryAsync(string id, DateTimeOffset expiresAt, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(id);
+
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            await using var connection = await OpenConnectionAsync(cancellationToken);
+
+            await ExecuteAsync(
+                connection,
+                null,
+                "UPDATE sessions SET expires_at = $expires_at WHERE id = $id AND revoked_at IS NULL;",
+                cancellationToken,
+                ("$expires_at", FormatTimestamp(expiresAt)),
+                ("$id", id));
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     public async Task<int> DeleteSessionsEndedBeforeAsync(DateTimeOffset cutoff, CancellationToken cancellationToken)
     {
         await _gate.WaitAsync(cancellationToken);

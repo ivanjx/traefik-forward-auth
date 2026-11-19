@@ -54,18 +54,10 @@ public static class AdminForms
     {
         var errors = new List<string>();
 
-        var lifetimeText = Text(form, "lifetime_seconds");
-        TimeSpan lifetime;
-
-        if (long.TryParse(lifetimeText, NumberStyles.Integer, CultureInfo.InvariantCulture, out var seconds) &&
-            seconds is > 0 and <= 31536000)
-        {
-            lifetime = TimeSpan.FromSeconds(seconds);
-        }
-        else
+        if (!TryParseLifetime(Text(form, "lifetime_value"), Text(form, "lifetime_unit"), out var lifetime))
         {
             lifetime = current.Lifetime;
-            errors.Add("Lifetime must be a whole number of seconds between 1 and 31536000.");
+            errors.Add("Lifetime must be a whole number of seconds, minutes, hours or days, up to 365 days.");
         }
 
         var actionText = Text(form, "default_action");
@@ -122,6 +114,26 @@ public static class AdminForms
         }
 
         return new ParsedSettings(settings, errors);
+    }
+
+    /// <summary>Parses a whole-number lifetime in one of <see cref="AdminUi.LifetimeUnits"/>, capped at <see cref="PolicySettings.MaxLifetime"/>.</summary>
+    public static bool TryParseLifetime(string valueText, string unitText, out TimeSpan lifetime)
+    {
+        lifetime = default;
+
+        var unit = AdminUi.LifetimeUnits.FirstOrDefault(candidate => candidate.Value == unitText);
+
+        if (unit is null ||
+            !long.TryParse(valueText, NumberStyles.None, CultureInfo.InvariantCulture, out var value) ||
+            value <= 0 ||
+            value > (long)PolicySettings.MaxLifetime.TotalSeconds / unit.Seconds)
+        {
+            return false;
+        }
+
+        lifetime = TimeSpan.FromSeconds(value * unit.Seconds);
+
+        return true;
     }
 
     /// <summary>

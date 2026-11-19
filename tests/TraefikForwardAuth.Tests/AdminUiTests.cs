@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
+using TraefikForwardAuth.Admin;
 using TraefikForwardAuth.Auth;
 using TraefikForwardAuth.Hosting;
 using TraefikForwardAuth.Policy;
@@ -123,7 +124,8 @@ public sealed class AdminUiTests
                 ["auth_host"] = "admin.example.com",
                 ["insecure_cookie"] = "on",
                 ["url_path"] = "/auth",
-                ["lifetime_seconds"] = "3600",
+                ["lifetime_value"] = "3",
+                ["lifetime_unit"] = "days",
                 ["logout_redirect"] = "https://example.com/bye",
                 ["default_action"] = "allow",
                 ["default_provider"] = "oidc",
@@ -143,14 +145,87 @@ public sealed class AdminUiTests
         Assert.Equal("admin.example.com", settings.AuthHost);
         Assert.True(settings.InsecureCookie);
         Assert.Equal("/auth", settings.UrlPath);
-        Assert.Equal(TimeSpan.FromHours(1), settings.Lifetime);
+        Assert.Equal(TimeSpan.FromDays(3), settings.Lifetime);
         Assert.Equal("https://example.com/bye", settings.LogoutRedirect);
         Assert.Equal(RuleAction.Allow, settings.DefaultAction);
         Assert.Equal("oidc", settings.DefaultProvider);
         Assert.True(settings.MatchWhitelistOrDomain);
 
         var page = await environment.GetAsync("/settings");
-        Assert.Contains("_custom_auth", await page.Content.ReadAsStringAsync());
+        var html = await page.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        Assert.Contains("_custom_auth", html);
+        Assert.Matches("name=\"lifetime_value\" value=\"3\"", html);
+        Assert.Matches("<option value=\"days\"[^>]*selected", html);
+    }
+
+    [Fact]
+    public async Task SettingsSaveRejectsLifetimeOverOneYear()
+    {
+        await using var environment = await AdminEnvironment.StartAsync();
+        var token = await environment.LoginAsync();
+
+        var response = await environment.PostFormAsync(
+            "/settings",
+            new Dictionary<string, string>
+            {
+                ["cookie_name"] = "_custom_auth",
+                ["csrf_cookie_name"] = "_custom_csrf",
+                ["url_path"] = "/auth",
+                ["lifetime_value"] = "366",
+                ["lifetime_unit"] = "days",
+                ["default_action"] = "auth",
+                ["default_provider"] = "google",
+                ["__RequestVerificationToken"] = token
+            });
+
+        Assert.NotEqual(HttpStatusCode.SeeOther, response.StatusCode);
+        Assert.Contains("up to 365 days", await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+
+        var configuration = await environment.Runtime.Store.LoadConfigurationAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(PolicySettings.DefaultLifetime, configuration.Settings.Lifetime);
+    }
+
+    [Theory]
+    [InlineData("30", "seconds", 30)]
+    [InlineData("90", "minutes", 5400)]
+    [InlineData("12", "hours", 43200)]
+    [InlineData("365", "days", 31536000)]
+    [InlineData("31536000", "seconds", 31536000)]
+    public void LifetimeParsesWholeNumbersInTheChosenUnit(string value, string unit, long expectedSeconds)
+    {
+        Assert.True(AdminForms.TryParseLifetime(value, unit, out var lifetime));
+        Assert.Equal(TimeSpan.FromSeconds(expectedSeconds), lifetime);
+    }
+
+    [Theory]
+    [InlineData("366", "days")]
+    [InlineData("8761", "hours")]
+    [InlineData("31536001", "seconds")]
+    [InlineData("99999999999999999999", "days")]
+    [InlineData("9223372036854775807", "days")]
+    [InlineData("0", "hours")]
+    [InlineData("-1", "hours")]
+    [InlineData("1.5", "hours")]
+    [InlineData("", "hours")]
+    [InlineData("1", "weeks")]
+    [InlineData("1", "")]
+    public void LifetimeRejectsOutOfRangeFractionalAndUnknownInput(string value, string unit)
+    {
+        Assert.False(AdminForms.TryParseLifetime(value, unit, out _));
+    }
+
+    [Theory]
+    [InlineData(43200, 12, "hours")]
+    [InlineData(172800, 2, "days")]
+    [InlineData(5400, 90, "minutes")]
+    [InlineData(90, 90, "seconds")]
+    [InlineData(3601, 3601, "seconds")]
+    public void LifetimeIsShownInTheLargestExactUnit(long seconds, long expectedValue, string expectedUnit)
+    {
+        var (value, unit) = AdminUi.SplitLifetime(TimeSpan.FromSeconds(seconds));
+
+        Assert.Equal(expectedValue, value);
+        Assert.Equal(expectedUnit, unit);
     }
 
     [Fact]

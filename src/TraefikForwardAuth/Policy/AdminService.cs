@@ -293,7 +293,7 @@ public sealed class AdminService
             throw new ArgumentException("The callback path must not contain a query or fragment.");
         }
 
-        if (settings.Lifetime <= TimeSpan.Zero || settings.Lifetime > TimeSpan.FromDays(365))
+        if (settings.Lifetime <= TimeSpan.Zero || settings.Lifetime > PolicySettings.MaxLifetime)
         {
             throw new ArgumentException("Lifetime must be between 1 second and 365 days.");
         }

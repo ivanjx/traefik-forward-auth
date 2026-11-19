@@ -491,6 +491,121 @@ public sealed class AuthTests
     }
 
     [Fact]
+    public async Task RenewAsyncWaitsUntilLessThanHalfTheLifetimeIsLeft()
+    {
+        var time = new MutableTimeProvider();
+        var repository = new FakeSessionRepository();
+        await using var manager = new SessionManager(repository, QuietLogger(time), time);
+        var session = await CreateForwardAuthAsync(manager);
+        var lifetime = TimeSpan.FromHours(1);
+
+        time.Advance(TimeSpan.FromMinutes(29));
+        Assert.Null(await manager.RenewAsync(session.Id, lifetime, CancellationToken.None));
+
+        // Exactly half is left: not renewed yet.
+        time.Advance(TimeSpan.FromMinutes(1));
+        Assert.Null(await manager.RenewAsync(session.Id, lifetime, CancellationToken.None));
+        Assert.Empty(repository.ExpiryUpdates);
+        Assert.Equal(session.ExpiresAt, manager.Get(session.Id)!.ExpiresAt);
+
+        time.Advance(TimeSpan.FromMinutes(1));
+        var renewed = await manager.RenewAsync(session.Id, lifetime, CancellationToken.None);
+
+        Assert.NotNull(renewed);
+        Assert.Equal(time.Now.AddHours(1), renewed.ExpiresAt);
+        Assert.Equal(renewed, manager.Get(session.Id));
+        Assert.True(manager.TryGetActive(session.Id, time.Now.AddMinutes(59), out _));
+        Assert.Equal((session.Id, time.Now.AddHours(1)), Assert.Single(repository.ExpiryUpdates));
+
+        // Renewed to a full lifetime, so another request right away does not renew again.
+        Assert.Null(await manager.RenewAsync(session.Id, lifetime, CancellationToken.None));
+        Assert.Single(repository.ExpiryUpdates);
+    }
+
+    [Fact]
+    public async Task RenewAsyncFollowsTheConfiguredLifetimeAndNeverShortensASession()
+    {
+        var time = new MutableTimeProvider();
+        var repository = new FakeSessionRepository();
+        await using var manager = new SessionManager(repository, QuietLogger(time), time);
+        var session = await CreateForwardAuthAsync(manager);
+
+        // The lifetime was lowered after login: the session has more than half of it left.
+        Assert.Null(await manager.RenewAsync(session.Id, TimeSpan.FromMinutes(30), CancellationToken.None));
+        Assert.Equal(session.ExpiresAt, manager.Get(session.Id)!.ExpiresAt);
+
+        // The lifetime was raised after login: a one hour session is under half of four hours.
+        var renewed = await manager.RenewAsync(session.Id, TimeSpan.FromHours(4), CancellationToken.None);
+
+        Assert.Equal(time.Now.AddHours(4), renewed!.ExpiresAt);
+    }
+
+    [Fact]
+    public async Task RenewAsyncSkipsAdminExpiredAndMissingSessions()
+    {
+        var time = new MutableTimeProvider();
+        var repository = new FakeSessionRepository();
+        await using var manager = new SessionManager(repository, QuietLogger(time), time);
+        var admin = await manager.CreateAsync(
+            SessionKind.Admin,
+            "admin@example.com",
+            "google",
+            null,
+            null,
+            null,
+            TimeSpan.FromHours(1),
+            CancellationToken.None);
+        var expired = await CreateForwardAuthAsync(manager);
+        var control = await CreateForwardAuthAsync(manager, "control@example.com");
+
+        // All three have 15 minutes left, so each is due: only the forward-auth control is renewed.
+        time.Advance(TimeSpan.FromMinutes(45));
+
+        Assert.Null(await manager.RenewAsync(admin.Id, TimeSpan.FromHours(1), CancellationToken.None));
+        Assert.NotNull(await manager.RenewAsync(control.Id, TimeSpan.FromHours(1), CancellationToken.None));
+
+        time.Advance(TimeSpan.FromMinutes(16));
+
+        Assert.Null(await manager.RenewAsync(expired.Id, TimeSpan.FromHours(1), CancellationToken.None));
+        Assert.Null(await manager.RenewAsync("missing", TimeSpan.FromHours(1), CancellationToken.None));
+        Assert.Equal(admin.ExpiresAt, manager.Get(admin.Id)!.ExpiresAt);
+        Assert.Equal(expired.ExpiresAt, manager.Get(expired.Id)!.ExpiresAt);
+        Assert.Equal(control.Id, Assert.Single(repository.ExpiryUpdates).Id);
+    }
+
+    [Fact]
+    public async Task RenewAsyncKeepsTheCurrentExpiryWhenStoringFails()
+    {
+        var time = new MutableTimeProvider();
+        var repository = new FakeSessionRepository();
+        await using var manager = new SessionManager(repository, QuietLogger(time), time);
+        var session = await CreateForwardAuthAsync(manager);
+        repository.ThrowOnExpiryUpdate = true;
+
+        time.Advance(TimeSpan.FromMinutes(45));
+
+        Assert.Null(await manager.RenewAsync(session.Id, TimeSpan.FromHours(1), CancellationToken.None));
+        Assert.Equal(session.ExpiresAt, manager.Get(session.Id)!.ExpiresAt);
+        Assert.True(manager.TryGetActive(session.Id, time.Now, out _));
+    }
+
+    [Fact]
+    public async Task RenewAsyncDoesNotBringBackASessionRevokedWhileStoring()
+    {
+        var time = new MutableTimeProvider();
+        var repository = new FakeSessionRepository();
+        await using var manager = new SessionManager(repository, QuietLogger(time), time);
+        var session = await CreateForwardAuthAsync(manager);
+        repository.OnExpiryUpdate = id => manager.RevokeAsync(id, audit: null, CancellationToken.None);
+
+        time.Advance(TimeSpan.FromMinutes(45));
+
+        Assert.Null(await manager.RenewAsync(session.Id, TimeSpan.FromHours(1), CancellationToken.None));
+        Assert.Null(manager.Get(session.Id));
+        Assert.False(manager.TryGetActive(session.Id, time.Now, out _));
+    }
+
+    [Fact]
     public async Task InitializeLoadsNonRevokedSessions()
     {
         var time = new MutableTimeProvider();
@@ -680,6 +795,12 @@ public sealed class AuthTests
 
         public bool ThrowOnInsert { get; init; }
 
+        public bool ThrowOnExpiryUpdate { get; set; }
+
+        public Func<string, Task>? OnExpiryUpdate { get; set; }
+
+        public List<(string Id, DateTimeOffset ExpiresAt)> ExpiryUpdates { get; } = [];
+
         public Task<IReadOnlyList<SessionRecord>> LoadSessionsAsync(CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyList<SessionRecord>>(Sessions.ToArray());
 
@@ -725,6 +846,21 @@ public sealed class AuthTests
             LastSeenUpdates.Add(sessions.ToArray());
 
             return Task.CompletedTask;
+        }
+
+        public async Task UpdateSessionExpiryAsync(string id, DateTimeOffset expiresAt, CancellationToken cancellationToken)
+        {
+            if (ThrowOnExpiryUpdate)
+            {
+                throw new InvalidOperationException("expiry update failed");
+            }
+
+            if (OnExpiryUpdate is not null)
+            {
+                await OnExpiryUpdate(id);
+            }
+
+            ExpiryUpdates.Add((id, expiresAt));
         }
 
         public Task<int> DeleteSessionsEndedBeforeAsync(DateTimeOffset cutoff, CancellationToken cancellationToken)

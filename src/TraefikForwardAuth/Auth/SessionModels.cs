@@ -62,6 +62,9 @@ public interface ISessionRepository
         IReadOnlyList<(string Id, DateTimeOffset LastSeenAt)> sessions,
         CancellationToken cancellationToken);
 
+    /// <summary>Moves the expiry of a session that has not been revoked.</summary>
+    Task UpdateSessionExpiryAsync(string id, DateTimeOffset expiresAt, CancellationToken cancellationToken);
+
     /// <summary>Deletes sessions that expired, or were revoked, before <paramref name="cutoff"/>. Returns the number deleted.</summary>
     Task<int> DeleteSessionsEndedBeforeAsync(DateTimeOffset cutoff, CancellationToken cancellationToken);
 }

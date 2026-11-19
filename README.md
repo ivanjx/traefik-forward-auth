@@ -61,6 +61,7 @@ services:
       # Forward-auth middleware
       - traefik.http.middlewares.tfa.forwardauth.address=http://traefik-forward-auth:4181
       - traefik.http.middlewares.tfa.forwardauth.authResponseHeaders=X-Forwarded-User,X-Forwarded-Role
+      - traefik.http.middlewares.tfa.forwardauth.addAuthCookiesToResponse=_forward_auth
 
   whoami:
     image: traefik/whoami
@@ -116,6 +117,8 @@ http:
         authResponseHeaders:
           - X-Forwarded-User
           - X-Forwarded-Role
+        addAuthCookiesToResponse:
+          - _forward_auth
 ```
 
 1. Register `https://tfa-admin.example.com/auth/callback` as the redirect URI on the **admin** OAuth client (OIDC client, GitHub OAuth app or Google OAuth client).
@@ -173,6 +176,12 @@ https://auth.example.com/_oauth
 ```
 
 A GitHub OAuth app has a single callback URL. GitHub accepts a `redirect_uri` whose host matches it excluding subdomains and whose path is under its path, so a callback of `https://example.com/_oauth` covers `https://app.example.com/_oauth`. Otherwise use **Auth host**.
+
+## Sessions
+
+The session lifetime is set in **Settings** (1 second to 365 days, default 7 days). Sessions slide: when a request arrives with less than half of the lifetime left, the session is extended to a full lifetime again and the auth cookie is re-issued. A user who stays active is not signed out; a user who is idle for the whole lifetime is. The admin UI session is fixed at 8 hours and never renewed.
+
+The renewed cookie travels in the forward-auth response, and Traefik only passes it on to the browser when `addAuthCookiesToResponse` lists the cookie (Traefik 3.1 or later). Use your configured **Auth cookie name** (`_forward_auth` by default). Without it, sessions still work but end at the original expiry. The cookie is sent again on every later request until the browser picks it up.
 
 ## Rules
 

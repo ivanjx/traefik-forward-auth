@@ -62,8 +62,17 @@
             </div>
 
             <div class="field">
-                <label for="lifetime_seconds">Session lifetime (seconds)</label>
-                <input id="lifetime_seconds" type="number" min="1" max="31536000" name="lifetime_seconds" value="@((long)Model.Settings.Lifetime.TotalSeconds)">
+                <label for="lifetime_value">Session lifetime</label>
+                <div class="input-pair">
+                    <input id="lifetime_value" type="number" min="1" step="1" name="lifetime_value" value="@Lifetime.Value" required>
+                    <select id="lifetime_unit" name="lifetime_unit" aria-label="Session lifetime unit">
+                        @foreach (var unit in AdminUi.LifetimeUnits)
+                        {
+                            <option value="@unit.Value" selected="@(unit.Value == Lifetime.Unit)">@unit.Label</option>
+                        }
+                    </select>
+                </div>
+                <span class="hint">Up to 365 days. Renewed automatically while the user is active, once less than half of it is left.</span>
             </div>
 
             <div class="field">
@@ -126,4 +135,6 @@
 
 @functions {
     public LayoutModel LayoutModel => Model.Layout;
+
+    private (long Value, string Unit) Lifetime => AdminUi.SplitLifetime(Model.Settings.Lifetime);
 }

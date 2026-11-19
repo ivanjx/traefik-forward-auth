@@ -164,6 +164,59 @@ public sealed class SessionManager : ISessionStore, IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Slides the expiry of an active forward-auth session to <c>now + lifetime</c> once less than half of
+    /// <paramref name="lifetime"/> is left. Returns the session with its renewed expiry, or null when no renewal
+    /// was due or it could not be stored; the caller then keeps serving the session with its current expiry.
+    /// </summary>
+    public async Task<SessionRecord?> RenewAsync(string id, TimeSpan lifetime, CancellationToken cancellationToken)
+    {
+        var now = _timeProvider.GetUtcNow();
+
+        if (!_sessions.TryGetValue(id, out var session) ||
+            session.Kind != SessionKind.ForwardAuth ||
+            !session.IsActive(now) ||
+            session.ExpiresAt - now >= lifetime / 2)
+        {
+            return null;
+        }
+
+        var expiresAt = now + lifetime;
+
+        try
+        {
+            await _repository.UpdateSessionExpiryAsync(id, expiresAt, cancellationToken);
+        }
+        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            // Renewal is best-effort: the session is still valid until its current expiry.
+            _logger.Error("Failed to renew session", ("id", id), ("error", exception.Message));
+
+            return null;
+        }
+
+        // Re-read the cache: touches or a concurrent renewal may have replaced the record while storing.
+        // A revoked session is gone from the cache and must not come back.
+        while (_sessions.TryGetValue(id, out var current))
+        {
+            if (current.ExpiresAt >= expiresAt)
+            {
+                return current;
+            }
+
+            var renewed = current with { ExpiresAt = expiresAt };
+
+            if (_sessions.TryUpdate(id, renewed, current))
+            {
+                _logger.Debug("Renewed session", ("id", id));
+
+                return renewed;
+            }
+        }
+
+        return null;
+    }
+
     /// <summary>Revokes one session; returns false when it did not exist or was already revoked.</summary>
     public async Task<bool> RevokeAsync(string id, SessionRevocationAudit? audit, CancellationToken cancellationToken)
     {

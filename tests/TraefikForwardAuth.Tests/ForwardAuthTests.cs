@@ -242,6 +242,203 @@ public sealed class ForwardAuthTests
     }
 
     [Fact]
+    public async Task SessionPastHalfLifetime_IsExtendedAndCookieReissued()
+    {
+        var provider = new FakeProvider();
+        var settings = Settings();
+        var snapshot = Snapshot(
+            settings,
+            [Rule("auth", RuleAction.Auth, true, provider: ProviderName)],
+            Providers(provider));
+        var time = new FakeTimeProvider();
+        var repository = new FakeSessionRepository();
+
+        await RunAsync(snapshot, time, async (client, sessions) =>
+        {
+            var session = await CreateSessionAsync(sessions);
+            var cookie = AuthCookie(settings, Host, Email, session.Id, session.ExpiresAt);
+
+            time.Advance(TimeSpan.FromMinutes(31));
+            var expected = time.GetUtcNow() + settings.Lifetime;
+
+            var response = await client.SendAsync(Request("/private", cookies: [("_forward_auth", cookie)]));
+
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            Assert.Equal(Email, response.Headers.GetValues("X-Forwarded-User").Single());
+            Assert.Equal(expected, sessions.Get(session.Id)!.ExpiresAt);
+            Assert.Equal((session.Id, expected), Assert.Single(repository.ExpiryUpdates));
+
+            var header = FindCookieHeader(response, "_forward_auth");
+            Assert.NotNull(header);
+            Assert.Contains("expires=" + HttpDate(expected), header, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("httponly", header, StringComparison.OrdinalIgnoreCase);
+
+            Assert.True(CookieService.TryReadAuthCookieValue(
+                settings.SigningSecret,
+                CookieService.CookieDomain(settings, Host),
+                Uri.UnescapeDataString(CookieValue(header)),
+                time.GetUtcNow(),
+                out var identity,
+                out _,
+                out _));
+            Assert.Equal(session.Id, identity.SessionId);
+            Assert.Equal(Email, identity.Email);
+            Assert.Equal(expected, identity.ExpiresAt);
+        }, repository);
+    }
+
+    [Fact]
+    public async Task SessionWithHalfLifetimeLeft_IsNotRenewed()
+    {
+        var provider = new FakeProvider();
+        var settings = Settings();
+        var snapshot = Snapshot(
+            settings,
+            [Rule("auth", RuleAction.Auth, true, provider: ProviderName)],
+            Providers(provider));
+        var time = new FakeTimeProvider();
+        var repository = new FakeSessionRepository();
+
+        await RunAsync(snapshot, time, async (client, sessions) =>
+        {
+            var session = await CreateSessionAsync(sessions);
+            var cookie = AuthCookie(settings, Host, Email, session.Id, session.ExpiresAt);
+
+            time.Advance(TimeSpan.FromMinutes(30));
+
+            var response = await client.SendAsync(Request("/private", cookies: [("_forward_auth", cookie)]));
+
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            Assert.Null(FindCookieHeader(response, "_forward_auth"));
+            Assert.Equal(session.ExpiresAt, sessions.Get(session.Id)!.ExpiresAt);
+            Assert.Empty(repository.ExpiryUpdates);
+        }, repository);
+    }
+
+    [Fact]
+    public async Task ActiveUser_StaysSignedInPastTheOriginalLifetime()
+    {
+        var provider = new FakeProvider();
+        var settings = Settings();
+        var snapshot = Snapshot(
+            settings,
+            [Rule("auth", RuleAction.Auth, true, provider: ProviderName)],
+            Providers(provider));
+        var time = new FakeTimeProvider();
+
+        await RunAsync(snapshot, time, async (client, sessions) =>
+        {
+            var session = await CreateSessionAsync(sessions);
+            var cookie = AuthCookie(settings, Host, Email, session.Id, session.ExpiresAt);
+
+            // Every 35 minutes is past half of the one hour lifetime, so each request renews and the
+            // browser receives a new cookie to use for the next one.
+            for (var i = 0; i < 5; i++)
+            {
+                time.Advance(TimeSpan.FromMinutes(35));
+
+                var response = await client.SendAsync(Request("/private", cookies: [("_forward_auth", cookie)]));
+
+                Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+                var header = FindCookieHeader(response, "_forward_auth");
+                Assert.NotNull(header);
+                cookie = Uri.UnescapeDataString(CookieValue(header));
+            }
+
+            Assert.True(time.GetUtcNow() > session.ExpiresAt.AddHours(1));
+            Assert.True(sessions.TryGetActive(session.Id, time.GetUtcNow(), out _));
+        });
+    }
+
+    [Fact]
+    public async Task IdleUser_IsSignedOutAfterTheLifetimeEvenWithRenewalEnabled()
+    {
+        var provider = new FakeProvider();
+        var settings = Settings();
+        var snapshot = Snapshot(
+            settings,
+            [Rule("auth", RuleAction.Auth, true, provider: ProviderName)],
+            Providers(provider));
+        var time = new FakeTimeProvider();
+
+        await RunAsync(snapshot, time, async (client, sessions) =>
+        {
+            var session = await CreateSessionAsync(sessions);
+            var cookie = AuthCookie(settings, Host, Email, session.Id, session.ExpiresAt);
+
+            time.Advance(TimeSpan.FromMinutes(61));
+
+            var response = await client.SendAsync(Request("/private", cookies: [("_forward_auth", cookie)]));
+
+            Assert.Equal(HttpStatusCode.TemporaryRedirect, response.StatusCode);
+            Assert.Null(FindCookieHeader(response, "_forward_auth"));
+        });
+    }
+
+    [Fact]
+    public async Task StaleCookieAfterRenewal_IsReissuedWithoutExtendingTheSessionAgain()
+    {
+        var provider = new FakeProvider();
+        var settings = Settings();
+        var snapshot = Snapshot(
+            settings,
+            [Rule("auth", RuleAction.Auth, true, provider: ProviderName)],
+            Providers(provider));
+        var time = new FakeTimeProvider();
+        var repository = new FakeSessionRepository();
+
+        await RunAsync(snapshot, time, async (client, sessions) =>
+        {
+            var session = await CreateSessionAsync(sessions);
+            var staleCookie = AuthCookie(settings, Host, Email, session.Id, session.ExpiresAt);
+
+            time.Advance(TimeSpan.FromMinutes(31));
+            var expected = time.GetUtcNow() + settings.Lifetime;
+
+            await client.SendAsync(Request("/private", cookies: [("_forward_auth", staleCookie)]));
+
+            // A parallel request, or a response Traefik did not pass on, leaves the browser on the old cookie.
+            var response = await client.SendAsync(Request("/private", cookies: [("_forward_auth", staleCookie)]));
+
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            Assert.Single(repository.ExpiryUpdates);
+
+            var header = FindCookieHeader(response, "_forward_auth");
+            Assert.NotNull(header);
+            Assert.Contains("expires=" + HttpDate(expected), header, StringComparison.OrdinalIgnoreCase);
+        }, repository);
+    }
+
+    [Fact]
+    public async Task RenewalStoreFailure_StillAllowsRequestWithoutNewCookie()
+    {
+        var provider = new FakeProvider();
+        var settings = Settings();
+        var snapshot = Snapshot(
+            settings,
+            [Rule("auth", RuleAction.Auth, true, provider: ProviderName)],
+            Providers(provider));
+        var time = new FakeTimeProvider();
+        var repository = new FakeSessionRepository { ThrowOnExpiryUpdate = true };
+
+        await RunAsync(snapshot, time, async (client, sessions) =>
+        {
+            var session = await CreateSessionAsync(sessions);
+            var cookie = AuthCookie(settings, Host, Email, session.Id, session.ExpiresAt);
+
+            time.Advance(TimeSpan.FromMinutes(31));
+
+            var response = await client.SendAsync(Request("/private", cookies: [("_forward_auth", cookie)]));
+
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            Assert.Equal(Email, response.Headers.GetValues("X-Forwarded-User").Single());
+            Assert.Null(FindCookieHeader(response, "_forward_auth"));
+            Assert.Equal(session.ExpiresAt, sessions.Get(session.Id)!.ExpiresAt);
+        }, repository);
+    }
+
+    [Fact]
     public async Task AccessDenied_Returns401()
     {
         var provider = new FakeProvider();
@@ -1071,6 +1268,10 @@ public sealed class ForwardAuthTests
 
         public bool ThrowOnInsert { get; set; }
 
+        public bool ThrowOnExpiryUpdate { get; set; }
+
+        public List<(string Id, DateTimeOffset ExpiresAt)> ExpiryUpdates { get; } = [];
+
         public Task InsertSessionAsync(SessionRecord session, CancellationToken cancellationToken)
         {
             if (ThrowOnInsert)
@@ -1105,6 +1306,18 @@ public sealed class ForwardAuthTests
         public Task UpdateSessionsLastSeenAsync(
             IReadOnlyList<(string Id, DateTimeOffset LastSeenAt)> sessions,
             CancellationToken cancellationToken) => Task.CompletedTask;
+
+        public Task UpdateSessionExpiryAsync(string id, DateTimeOffset expiresAt, CancellationToken cancellationToken)
+        {
+            if (ThrowOnExpiryUpdate)
+            {
+                throw new InvalidOperationException("database is locked");
+            }
+
+            ExpiryUpdates.Add((id, expiresAt));
+
+            return Task.CompletedTask;
+        }
 
         public Task<int> DeleteSessionsEndedBeforeAsync(DateTimeOffset cutoff, CancellationToken cancellationToken) =>
             Task.FromResult(0);

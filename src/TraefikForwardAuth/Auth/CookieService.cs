@@ -5,7 +5,7 @@ using TraefikForwardAuth.Policy;
 
 namespace TraefikForwardAuth.Auth;
 
-public sealed record AuthCookieIdentity(string Email, string SessionId);
+public sealed record AuthCookieIdentity(string Email, string SessionId, DateTimeOffset ExpiresAt);
 
 public enum CookieValidationFailure
 {
@@ -74,7 +74,7 @@ public static class CookieService
         out CookieValidationFailure failure,
         out string error)
     {
-        identity = new AuthCookieIdentity("", "");
+        identity = new AuthCookieIdentity("", "", default);
         failure = CookieValidationFailure.Invalid;
 
         if (value is null)
@@ -123,7 +123,7 @@ public static class CookieService
             return false;
         }
 
-        identity = new AuthCookieIdentity(email, sessionId);
+        identity = new AuthCookieIdentity(email, sessionId, expiresAt);
         failure = CookieValidationFailure.None;
         error = "";
 

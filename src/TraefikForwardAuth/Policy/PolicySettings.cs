@@ -6,7 +6,8 @@ public sealed record PolicySettings
     public const string DefaultCsrfCookieName = "_forward_auth_csrf";
     public const string DefaultUrlPath = "/_oauth";
     public const string DefaultProviderName = "google";
-    public static readonly TimeSpan DefaultLifetime = TimeSpan.FromHours(12);
+    public static readonly TimeSpan DefaultLifetime = TimeSpan.FromDays(7);
+    public static readonly TimeSpan MaxLifetime = TimeSpan.FromDays(365);
 
     public string CookieName { get; init; } = DefaultCookieName;
 

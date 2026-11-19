@@ -27,7 +27,7 @@ public sealed class StorageTests
             Assert.Equal("", settings.AuthHost);
             Assert.False(settings.InsecureCookie);
             Assert.Equal(PolicySettings.DefaultUrlPath, settings.UrlPath);
-            Assert.Equal(TimeSpan.FromHours(12), settings.Lifetime);
+            Assert.Equal(TimeSpan.FromDays(7), settings.Lifetime);
             Assert.Null(settings.LogoutRedirect);
             Assert.Equal(RuleAction.Auth, settings.DefaultAction);
             Assert.Equal(PolicySettings.DefaultProviderName, settings.DefaultProvider);
@@ -460,6 +460,39 @@ public sealed class StorageTests
             var active = await store.ListSessionsAsync(null, null, CancellationToken.None);
             Assert.Equal([bob.Id, admin.Id], active.Select(session => session.Id));
             Assert.Equal(touchedAt, active[0].LastSeenAt);
+        });
+    }
+
+    [Fact]
+    public async Task UpdateSessionExpiryMovesOnlyNonRevokedSessions()
+    {
+        await WithStoreAsync(async store =>
+        {
+            await store.InitializeAsync(CancellationToken.None);
+
+            var now = new DateTimeOffset(2026, 1, 10, 0, 0, 0, TimeSpan.Zero);
+            var active = new SessionRecord
+            {
+                Id = "active",
+                Kind = SessionKind.ForwardAuth,
+                Email = "a@example.com",
+                CreatedAt = now,
+                ExpiresAt = now.AddHours(1),
+                LastSeenAt = now
+            };
+            var revoked = active with { Id = "revoked" };
+
+            await store.InsertSessionAsync(active, CancellationToken.None);
+            await store.InsertSessionAsync(revoked, CancellationToken.None);
+            await store.MarkSessionsRevokedAsync([revoked.Id], now, audit: null, CancellationToken.None);
+
+            var renewedAt = now.AddDays(30);
+            await store.UpdateSessionExpiryAsync(active.Id, renewedAt, CancellationToken.None);
+            await store.UpdateSessionExpiryAsync(revoked.Id, renewedAt, CancellationToken.None);
+
+            var sessions = await store.LoadSessionsAsync(CancellationToken.None);
+            Assert.Equal(renewedAt, Assert.Single(sessions, session => session.Id == active.Id).ExpiresAt);
+            Assert.Equal(active.ExpiresAt, Assert.Single(sessions, session => session.Id == revoked.Id).ExpiresAt);
         });
     }
 

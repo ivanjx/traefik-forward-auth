@@ -1,22 +1,36 @@
+/* ==========================================================================
+   Theme tokens
+   ========================================================================== */
+
 :root {
     color-scheme: light dark;
+
+    /* Surfaces */
     --bg: #f5f6f8;
     --surface: #ffffff;
     --surface-2: #f8f9fb;
+    --code-bg: #eef1f5;
+
+    /* Text and borders */
     --text: #1b2129;
     --muted: #677382;
     --border: #e0e4ea;
     --border-strong: #c9d0da;
+
+    /* Accent */
     --accent: #2459c6;
     --accent-hover: #1d4aa8;
     --accent-soft: #e8effc;
     --accent-text: #ffffff;
+
+    /* Status */
     --ok-bg: #e5f4ea;
     --ok-text: #1b6a32;
     --err-bg: #fdecec;
     --err-text: #a51d1d;
     --err-border: #f1c4c4;
-    --code-bg: #eef1f5;
+
+    /* Shape and type */
     --shadow: 0 1px 2px rgb(16 24 40 / 0.05);
     --radius: 10px;
     --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -27,25 +41,36 @@
         --bg: #12161b;
         --surface: #1a2027;
         --surface-2: #1f262e;
+        --code-bg: #242c35;
+
         --text: #e6eaf0;
         --muted: #95a1ae;
         --border: #2b343e;
         --border-strong: #3a4552;
+
         --accent: #6d97ff;
         --accent-hover: #86a9ff;
         --accent-soft: #1f2c47;
         --accent-text: #0d1116;
+
         --ok-bg: #16301f;
         --ok-text: #8fe0a5;
         --err-bg: #381b1b;
         --err-text: #ffaaaa;
         --err-border: #5c2a2a;
-        --code-bg: #242c35;
+
         --shadow: none;
     }
 }
 
-* { box-sizing: border-box; }
+
+/* ==========================================================================
+   Base
+   ========================================================================== */
+
+* {
+    box-sizing: border-box;
+}
 
 body {
     margin: 0;
@@ -54,10 +79,19 @@ body {
     font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 
-a { color: var(--accent); text-decoration: none; }
-a:hover { text-decoration: underline; }
+a {
+    color: var(--accent);
+    text-decoration: none;
+}
 
-/* Layout */
+a:hover {
+    text-decoration: underline;
+}
+
+
+/* ==========================================================================
+   Layout: header, navigation, content area
+   ========================================================================== */
 
 .container {
     max-width: 1120px;
@@ -89,9 +123,15 @@ a:hover { text-decoration: underline; }
     color: var(--text);
 }
 
-.brand:hover { text-decoration: none; }
-.brand svg { color: var(--accent); }
+.brand:hover {
+    text-decoration: none;
+}
 
+.brand svg {
+    color: var(--accent);
+}
+
+/* Signed-in user and sign-out button, pushed to the right of the brand row. */
 .account {
     margin-left: auto;
     display: flex;
@@ -102,10 +142,16 @@ a:hover { text-decoration: underline; }
 }
 
 .account a,
-.account button.link { color: var(--muted); }
-.account a:hover,
-.account button.link:hover { color: var(--text); }
+.account button.link {
+    color: var(--muted);
+}
 
+.account a:hover,
+.account button.link:hover {
+    color: var(--text);
+}
+
+/* A <button> that looks like a text link. */
 .account button.link {
     padding: 0;
     border: 0;
@@ -114,7 +160,10 @@ a:hover { text-decoration: underline; }
     cursor: pointer;
 }
 
-.account button.link:hover { background: none; text-decoration: underline; }
+.account button.link:hover {
+    background: none;
+    text-decoration: underline;
+}
 
 .site-nav {
     display: flex;
@@ -130,7 +179,10 @@ a:hover { text-decoration: underline; }
     border-bottom: 2px solid transparent;
 }
 
-.site-nav a:hover { color: var(--text); text-decoration: none; }
+.site-nav a:hover {
+    color: var(--text);
+    text-decoration: none;
+}
 
 .site-nav a.active {
     color: var(--text);
@@ -138,22 +190,58 @@ a:hover { text-decoration: underline; }
     font-weight: 600;
 }
 
-.content { padding-top: 28px; padding-bottom: 64px; }
+.content {
+    padding-top: 28px;
+    padding-bottom: 64px;
+}
 
-/* Typography */
 
-h1 { font-size: 22px; line-height: 1.3; margin: 0; }
-h2 { font-size: 16px; margin: 32px 0 12px; }
-h3 { font-size: 14px; margin: 20px 0 8px; }
+/* ==========================================================================
+   Typography
+   ========================================================================== */
 
-p { margin: 0 0 12px; }
-p:last-child { margin-bottom: 0; }
+h1 {
+    font-size: 22px;
+    line-height: 1.3;
+    margin: 0;
+}
 
-.muted { color: var(--muted); }
-.small { font-size: 13px; }
-.mono { font-family: var(--mono); font-size: 13px; }
+h2 {
+    font-size: 16px;
+    margin: 32px 0 12px;
+}
 
-code, pre { font-family: var(--mono); font-size: 12.5px; }
+h3 {
+    font-size: 14px;
+    margin: 20px 0 8px;
+}
+
+p {
+    margin: 0 0 12px;
+}
+
+p:last-child {
+    margin-bottom: 0;
+}
+
+.muted {
+    color: var(--muted);
+}
+
+.small {
+    font-size: 13px;
+}
+
+.mono {
+    font-family: var(--mono);
+    font-size: 13px;
+}
+
+code,
+pre {
+    font-family: var(--mono);
+    font-size: 12.5px;
+}
 
 code {
     background: var(--code-bg);
@@ -170,6 +258,11 @@ pre {
     white-space: pre-wrap;
     word-break: break-word;
 }
+
+
+/* ==========================================================================
+   Page and section headings
+   ========================================================================== */
 
 .page-head {
     display: flex;
@@ -194,9 +287,14 @@ pre {
     margin: 32px 0 12px;
 }
 
-.section-head h2 { margin: 0; }
+.section-head h2 {
+    margin: 0;
+}
 
-/* Banners */
+
+/* ==========================================================================
+   Banners and error lists
+   ========================================================================== */
 
 .banner {
     padding: 10px 14px;
@@ -204,9 +302,19 @@ pre {
     margin-bottom: 20px;
 }
 
-.banner > div { margin-top: 2px; }
-.banner-ok { background: var(--ok-bg); color: var(--ok-text); }
-.banner-error { background: var(--err-bg); color: var(--err-text); }
+.banner > div {
+    margin-top: 2px;
+}
+
+.banner-ok {
+    background: var(--ok-bg);
+    color: var(--ok-text);
+}
+
+.banner-error {
+    background: var(--err-bg);
+    color: var(--err-text);
+}
 
 .errors {
     margin: 0 0 16px;
@@ -216,9 +324,14 @@ pre {
     border-radius: 8px;
 }
 
-.errors li { margin: 2px 0; }
+.errors li {
+    margin: 2px 0;
+}
 
-/* Cards */
+
+/* ==========================================================================
+   Cards
+   ========================================================================== */
 
 .card {
     background: var(--surface);
@@ -229,10 +342,29 @@ pre {
     margin-bottom: 20px;
 }
 
-.card-head { margin-bottom: 16px; }
-.card-head h2 { margin: 0; }
-.card-head p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+.card.spaced {
+    margin-top: 32px;
+}
 
+.card-head {
+    margin-bottom: 16px;
+}
+
+.card-head h2 {
+    margin: 0;
+}
+
+.card-head p {
+    margin: 4px 0 0;
+    color: var(--muted);
+    font-size: 13px;
+}
+
+.card-head.section-head {
+    margin-top: 0;
+}
+
+/* Destructive actions, such as rotating the signing secret. */
 .danger-zone {
     display: flex;
     align-items: center;
@@ -243,13 +375,20 @@ pre {
     margin-top: 32px;
 }
 
-.card.spaced { margin-top: 32px; }
-.card-head.section-head { margin-top: 0; }
+.danger-zone h2 {
+    margin: 0 0 2px;
+}
 
-.danger-zone h2 { margin: 0 0 2px; }
-.danger-zone p { margin: 0; color: var(--muted); font-size: 13px; }
+.danger-zone p {
+    margin: 0;
+    color: var(--muted);
+    font-size: 13px;
+}
 
-/* Tables */
+
+/* ==========================================================================
+   Tables
+   ========================================================================== */
 
 .table-wrap {
     background: var(--surface);
@@ -260,9 +399,20 @@ pre {
     margin-bottom: 20px;
 }
 
-table { width: 100%; border-collapse: collapse; }
+/* A table inside a card (or a card inside a table wrapper) must not draw a second frame. */
+.table-wrap .card,
+.card .table-wrap {
+    box-shadow: none;
+    margin-bottom: 0;
+}
 
-th, td {
+table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+th,
+td {
     text-align: left;
     padding: 10px 14px;
     border-bottom: 1px solid var(--border);
@@ -279,13 +429,38 @@ th {
     white-space: nowrap;
 }
 
-tbody tr:last-child td { border-bottom: none; }
-tbody tr:hover td { background: var(--surface-2); }
-td.empty, tbody tr:hover td.empty { color: var(--muted); text-align: center; padding: 28px 14px; background: none; }
+tbody tr:last-child td {
+    border-bottom: none;
+}
 
-.nowrap { white-space: nowrap; }
-td.top { vertical-align: top; }
-td.actions, th.actions { width: 1%; white-space: nowrap; text-align: right; }
+tbody tr:hover td {
+    background: var(--surface-2);
+}
+
+/* "Nothing here yet" row: centered, and exempt from the row hover highlight. */
+td.empty,
+tbody tr:hover td.empty {
+    color: var(--muted);
+    text-align: center;
+    padding: 28px 14px;
+    background: none;
+}
+
+.nowrap {
+    white-space: nowrap;
+}
+
+td.top {
+    vertical-align: top;
+}
+
+/* Shrink the actions column to its buttons and keep them on the right. */
+td.actions,
+th.actions {
+    width: 1%;
+    white-space: nowrap;
+    text-align: right;
+}
 
 .row-actions {
     display: inline-flex;
@@ -294,14 +469,19 @@ td.actions, th.actions { width: 1%; white-space: nowrap; text-align: right; }
     justify-content: flex-end;
 }
 
-.row-actions form { display: contents; }
+/* Lets a button inside a per-row <form> sit in the flex row as if the form were not there. */
+.row-actions form {
+    display: contents;
+}
 
-.table-wrap .card,
-.card .table-wrap { box-shadow: none; margin-bottom: 0; }
 
-/* Forms */
+/* ==========================================================================
+   Forms
+   ========================================================================== */
 
-form { margin: 0; }
+form {
+    margin: 0;
+}
 
 .form-grid {
     display: grid;
@@ -309,18 +489,42 @@ form { margin: 0; }
     gap: 16px 20px;
 }
 
-.form-grid .span-2 { grid-column: 1 / -1; }
-.form-grid.cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-.form-actions.spaced { margin-top: 16px; }
+.form-grid.cols-4 {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+}
 
-.stack { display: grid; gap: 16px; }
+.form-grid .span-2 {
+    grid-column: 1 / -1;
+}
 
-.field { display: grid; gap: 6px; align-content: start; }
+.stack {
+    display: grid;
+    gap: 16px;
+}
 
-label { font-weight: 600; font-size: 13px; }
+.field {
+    display: grid;
+    gap: 6px;
+    align-content: start;
+}
 
-input[type=text], input[type=email], input[type=password], input[type=url],
-input[type=number], select, textarea {
+label {
+    font-weight: 600;
+    font-size: 13px;
+}
+
+.hint {
+    color: var(--muted);
+    font-size: 12px;
+}
+
+input[type=text],
+input[type=email],
+input[type=password],
+input[type=url],
+input[type=number],
+select,
+textarea {
     width: 100%;
     padding: 7px 10px;
     border: 1px solid var(--border-strong);
@@ -331,15 +535,26 @@ input[type=number], select, textarea {
     line-height: 1.4;
 }
 
-input:focus, select:focus, textarea:focus {
+input:focus,
+select:focus,
+textarea:focus {
     outline: none;
     border-color: var(--accent);
     box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
-input:disabled { background: var(--surface-2); color: var(--muted); cursor: not-allowed; }
+input:disabled {
+    background: var(--surface-2);
+    color: var(--muted);
+    cursor: not-allowed;
+}
 
-input[type=checkbox] { width: 15px; height: 15px; margin: 0; accent-color: var(--accent); }
+input[type=checkbox] {
+    width: 15px;
+    height: 15px;
+    margin: 0;
+    accent-color: var(--accent);
+}
 
 textarea {
     min-height: 68px;
@@ -348,6 +563,7 @@ textarea {
     font-size: 13px;
 }
 
+/* Checkbox with its label text on one line. */
 .checkline {
     display: inline-flex;
     align-items: center;
@@ -357,17 +573,28 @@ textarea {
     cursor: pointer;
 }
 
-.checkline label { font-weight: 450; font-size: 14px; cursor: pointer; }
+.checkline label {
+    font-weight: 450;
+    font-size: 14px;
+    cursor: pointer;
+}
 
-.input-pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 9em); gap: 8px; }
-
-.hint { color: var(--muted); font-size: 12px; }
+/* A number input with its unit dropdown beside it (session lifetime). */
+.input-pair {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 9em);
+    gap: 8px;
+}
 
 .form-actions {
     display: flex;
     gap: 8px;
     align-items: center;
     flex-wrap: wrap;
+}
+
+.form-actions.spaced {
+    margin-top: 16px;
 }
 
 .toolbar {
@@ -379,12 +606,23 @@ textarea {
     margin-bottom: 16px;
 }
 
-.toolbar form { display: flex; gap: 8px; align-items: center; }
-.toolbar input { width: 240px; }
+.toolbar form {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
 
-/* Buttons */
+.toolbar input {
+    width: 240px;
+}
 
-button, .button {
+
+/* ==========================================================================
+   Buttons
+   ========================================================================== */
+
+button,
+.button {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -401,42 +639,81 @@ button, .button {
     cursor: pointer;
 }
 
-button:hover, .button:hover {
+button:hover,
+.button:hover {
     background: var(--accent-hover);
     border-color: var(--accent-hover);
     text-decoration: none;
 }
 
-button.secondary, .button.secondary {
+/* Variants */
+
+button.secondary,
+.button.secondary {
     background: var(--surface);
     color: var(--text);
     border-color: var(--border-strong);
 }
 
-button.secondary:hover, .button.secondary:hover { background: var(--surface-2); border-color: var(--muted); }
+button.secondary:hover,
+.button.secondary:hover {
+    background: var(--surface-2);
+    border-color: var(--muted);
+}
 
-button.danger, .button.danger {
+button.danger,
+.button.danger {
     background: var(--surface);
     color: var(--err-text);
     border-color: var(--err-border);
 }
 
-button.danger:hover, .button.danger:hover { background: var(--err-bg); border-color: var(--err-text); }
+button.danger:hover,
+.button.danger:hover {
+    background: var(--err-bg);
+    border-color: var(--err-text);
+}
 
-button.ghost, .button.ghost { background: transparent; border-color: transparent; color: var(--muted); }
-button.ghost:hover, .button.ghost:hover { background: var(--code-bg); border-color: transparent; color: var(--text); }
+button.ghost,
+.button.ghost {
+    background: transparent;
+    border-color: transparent;
+    color: var(--muted);
+}
 
-button.small, .button.small { padding: 4px 10px; font-size: 12.5px; }
-button.icon { padding: 4px 8px; min-width: 28px; }
+button.ghost:hover,
+.button.ghost:hover {
+    background: var(--code-bg);
+    border-color: transparent;
+    color: var(--text);
+}
 
-button:disabled, button:disabled:hover {
+/* Sizes */
+
+button.small,
+.button.small {
+    padding: 4px 10px;
+    font-size: 12.5px;
+}
+
+button.icon {
+    padding: 4px 8px;
+    min-width: 28px;
+}
+
+/* Disabled buttons drop every variant's colors, hover included. */
+button:disabled,
+button:disabled:hover {
     opacity: 0.4;
     cursor: default;
     background: var(--surface);
     border-color: var(--border-strong);
 }
 
-/* Pills */
+
+/* ==========================================================================
+   Pills (status badges)
+   ========================================================================== */
 
 .pill {
     display: inline-flex;
@@ -452,21 +729,64 @@ button:disabled, button:disabled:hover {
     border: 1px solid transparent;
 }
 
-.pill.ok { color: var(--ok-text); background: var(--ok-bg); }
-.pill.bad { color: var(--err-text); background: var(--err-bg); }
-.pill.accent { color: var(--accent); background: var(--accent-soft); }
+.pill.ok {
+    color: var(--ok-text);
+    background: var(--ok-bg);
+}
 
-button.pill { cursor: pointer; font: inherit; font-size: 12px; font-weight: 550; padding: 1px 9px; }
-button.pill:hover { border-color: var(--border-strong); background: var(--code-bg); }
-button.pill.ok:hover { background: var(--ok-bg); }
+.pill.bad {
+    color: var(--err-text);
+    background: var(--err-bg);
+}
 
-.pill .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.pill.accent {
+    color: var(--accent);
+    background: var(--accent-soft);
+}
 
-/* Rules */
+.pill .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+}
 
-.rule-summary { color: var(--muted); font-size: 13px; }
-.rule-summary code { color: var(--text); }
-.rule-disabled td:not(.actions):not(.status) { opacity: 0.55; }
+/* A pill that is also a clickable toggle button. */
+button.pill {
+    cursor: pointer;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 550;
+    padding: 1px 9px;
+}
+
+button.pill:hover {
+    border-color: var(--border-strong);
+    background: var(--code-bg);
+}
+
+button.pill.ok:hover {
+    background: var(--ok-bg);
+}
+
+
+/* ==========================================================================
+   Rules: list, condition editor, preview, simulator
+   ========================================================================== */
+
+.rule-summary {
+    color: var(--muted);
+    font-size: 13px;
+}
+
+.rule-summary code {
+    color: var(--text);
+}
+
+/* Dim everything in a disabled rule's row except the actions and status cells. */
+.rule-disabled td:not(.actions):not(.status) {
+    opacity: 0.55;
+}
 
 .condition {
     border: 1px solid var(--border);
@@ -477,7 +797,9 @@ button.pill.ok:hover { background: var(--ok-bg); }
     gap: 12px;
 }
 
-.condition + .condition { margin-top: 10px; }
+.condition + .condition {
+    margin-top: 10px;
+}
 
 .condition-grid {
     display: grid;
@@ -492,8 +814,13 @@ button.pill.ok:hover { background: var(--ok-bg); }
     justify-content: space-between;
 }
 
-.method-list { display: flex; flex-wrap: wrap; gap: 6px 16px; }
+.method-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 16px;
+}
 
+/* Placeholder shown only while it is the sole child, i.e. when the rule has no conditions. */
 .conditions-empty {
     border: 1px dashed var(--border-strong);
     border-radius: 9px;
@@ -502,7 +829,9 @@ button.pill.ok:hover { background: var(--ok-bg); }
     color: var(--muted);
 }
 
-.conditions-empty:not(:only-child) { display: none; }
+.conditions-empty:not(:only-child) {
+    display: none;
+}
 
 .preview {
     border-left: 3px solid var(--accent);
@@ -511,7 +840,9 @@ button.pill.ok:hover { background: var(--ok-bg); }
     padding: 10px 14px;
 }
 
-.preview .errors { margin-bottom: 10px; }
+.preview .errors {
+    margin-bottom: 10px;
+}
 
 .sim-grid {
     display: grid;
@@ -519,35 +850,91 @@ button.pill.ok:hover { background: var(--ok-bg); }
     gap: 12px;
 }
 
-.sim-request { margin-bottom: 12px; }
-.sim-result { margin-top: 16px; }
+.sim-request {
+    margin-bottom: 12px;
+}
 
-.check-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
-.check-list li { display: flex; gap: 8px; align-items: baseline; }
+.sim-result {
+    margin-top: 16px;
+}
 
-/* Sessions & audit */
+.check-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 4px;
+}
 
-.user-agent, .entity {
+.check-list li {
+    display: flex;
+    gap: 8px;
+    align-items: baseline;
+}
+
+
+/* ==========================================================================
+   Sessions and audit log
+   ========================================================================== */
+
+.user-agent,
+.entity {
     max-width: 220px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-.audit-diff { min-width: 320px; }
-.audit-diff pre { max-height: 160px; font-size: 12px; }
+.audit-diff {
+    min-width: 320px;
+}
 
-.empty-state { text-align: center; padding: 48px 20px; }
-.empty-state h1 { margin-bottom: 8px; }
+.audit-diff pre {
+    max-height: 160px;
+    font-size: 12px;
+}
+
+.empty-state {
+    text-align: center;
+    padding: 48px 20px;
+}
+
+.empty-state h1 {
+    margin-bottom: 8px;
+}
+
+
+/* ==========================================================================
+   Responsive
+   ========================================================================== */
 
 @media (max-width: 960px) {
-    .form-grid.cols-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .form-grid.cols-4 {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
 }
 
 @media (max-width: 760px) {
-    .container { padding: 0 16px; }
-    .form-grid, .form-grid.cols-4, .condition-grid, .sim-grid { grid-template-columns: 1fr; }
-    .form-grid .span-2 { grid-column: auto; }
-    .account span { display: none; }
-    .toolbar input { width: 100%; }
+    .container {
+        padding: 0 16px;
+    }
+
+    .form-grid,
+    .form-grid.cols-4,
+    .condition-grid,
+    .sim-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .form-grid .span-2 {
+        grid-column: auto;
+    }
+
+    .account span {
+        display: none;
+    }
+
+    .toolbar input {
+        width: 100%;
+    }
 }
